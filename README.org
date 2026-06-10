@@ -15,8 +15,9 @@ No RTL/tool execution is required in this branch.
 - [[file:notes/questions.org][questions.org]]
 
 * Papers
-- [[file:papers][papers/]] contains local PDF copies of every paper link found in the surveys.
+- [[file:papers][papers/]] contains local PDF copies of papers in the research registry.
 - One entry (`2512.24713`) is currently unavailable on arXiv (`404`) and could not be downloaded in this pass.
+- Added: `arXiv:2606.11117` (Towards Autonomous Accelerator Design: FPGA Accelerator Generation with SECDA) as the next registry item and PDF archive.
 
 * Recommended workflow
 1. Read a paper entry in the registry.

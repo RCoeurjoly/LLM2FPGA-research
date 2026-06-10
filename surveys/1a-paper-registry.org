@@ -36,6 +36,7 @@ The table below keeps a normalized index for learning notes and cross-paper comp
 | 25 | Efficient Kernel Mapping and Comprehensive System Evaluation of LLM Acceleration on a CGLA (arXiv:2512.00335) | 1a | No | Low | Low-Medium |
 | 26 | PD-Swap (arXiv:2512.11550) | 1a | No | Low | Low |
 | 27 | FPGA Co-Design for Efficient N:M Sparse and Quantized Model Inference (arXiv:2512.24713) | 1a | No | No (withdrawn) | Low |
+| 28 | Towards Autonomous Accelerator Design: FPGA Accelerator Generation with SECDA (arXiv:2606.11117) | 1a | No (not listed in source survey) | Low | Low |
 
 * Working notes
 - Prioritize papers that are both open and practical for open-source Kintex-480T workflows:

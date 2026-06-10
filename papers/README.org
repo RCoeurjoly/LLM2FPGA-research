@@ -29,5 +29,6 @@ Downloaded from survey-referenced links on 2026-06-10.
 | OK | arXiv:2603.29002 | papers/arxiv-2603.29002.pdf |
 | OK | arXiv:2605.05920 | papers/arxiv-2605.05920.pdf |
 | OK | arXiv:2605.06052 | papers/arxiv-2605.06052.pdf |
+| OK | arXiv:2606.11117 | papers/arxiv-2606.11117.pdf |
 | OK | latte22 paper PDF (capra) | papers/latte22-papers-2.pdf |
 | FAIL | arXiv:2512.24713 | not downloaded (HTTP 404) |

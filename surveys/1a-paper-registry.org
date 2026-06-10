@@ -57,6 +57,41 @@ The table below keeps a normalized index for learning notes and cross-paper comp
 | 46 | ASP/SAT-Based Symbolic Synthesis / SkyEgg family (2021+) | candidate | No | Medium | Low | No | none | proprietary | fpga_generic | partial | conditional | ASP-guided HLS-to-hardware co-synthesis | FPGA/SoC symbolic DSE | low | low |
 | 47 | MATCHA-style CP-SAT DNN Deployment Mapping (2025-26) | candidate | No | Low | Low | No | none | proprietary | fpga_generic | partial | conditional | CP-SAT for partitioning/deployment/quant choices | DNN deployment pipeline | low | low |
 
+* Viability Protocol Runs (first two)
+
+The first two items were executed against the protocol from [[file:../learning/cp-llm-fpga-dse.org][learning/cp-llm-fpga-dse.org]] in this order:
+1) arXiv:2606.11117
+2) arXiv:2501.09242
+
+** 28 — Towards Autonomous Accelerator Design: FPGA Accelerator Generation with SECDA (arXiv:2606.11117) :: No-go
+
+- Gate 0 (Feasibility Screening): **Fail**
+  - Mandatory tooling in this paper is `SystemC`, `SECDA`, and `Vivado HLS 2019.2`.
+  - Target workflow is explicit `Zynq-7000` FPGA with SECDA-specific constraints.
+  - No public repository link is present in the survey record, and code availability is `none`.
+- Gate 1 (Toy-Build Viability): **Not attempted** (blocked by Gate 0).
+- Gate 2 / Gate 3: **Not applicable** (blocked by Gate 0).
+- Decision: **No-go for this repo’s current open-source, YPCB-00338-1P1 path**.
+- Failure mode: `toolchain-block`.
+- Evidence used:
+  - Local PDF text scan confirms `SECDA`, `SystemC`, and `Vivado HLS 2019.2` references and `Zynq-7000`.
+  - No artifact/repo link in this registry row.
+
+** 29 — Holistic Optimization Framework for FPGA Accelerators (arXiv:2501.09242) :: No-go
+
+- Gate 0 (Feasibility Screening): **Fail**
+  - The method is not LLM-specific and is a general HLS optimization framework.
+  - Mandatory flow uses `AMD/Vitis HLS` and `OpenCL`; paper reports `OpenCL host code` and bitstream generation from Vitis toolchain.
+  - Open-source repository exists (`github.com/UCLA-VAST/Prometheus`) but dependency openness remains mixed/proprietary around the execution stack.
+- Gate 1 (Toy-Build Viability): **Not attempted** (blocked by Gate 0).
+- Gate 2 / Gate 3: **Not applicable** (blocked by Gate 0).
+- Decision: **No-go for direct LLM inference viability path in this repo**.
+- Failure mode: `toolchain-block` and `scope-mismatch`.
+- Evidence used:
+  - arXiv abstract/intro confirms non-LLM scope + Vitis-focused generation flow.
+  - `open` extraction includes contribution bullet: `end-to-end compilation ... Vitis-HLS... bitstreams`.
+  - `References` section identifies the Prometheus GitHub repo but no direct OSS + Kintex/LLM bridge.
+
 * Solver Taxonomy (second pass: IDs 38-47)
 
 | ID | Solver family | Primary solver family | Secondary solver family | Practical use case |

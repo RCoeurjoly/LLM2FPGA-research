@@ -305,3 +305,104 @@ Mitigation:
 3. Add minimal CP schema file + solver stub script (skeleton only).
 4. Add experiment DB schema SQL and one tiny test dataset (a single quantized Linear candidate).
 5. Produce first `cp_candidate_report.org`: top-20 feasible configs + estimated latency ranking.
+
+* Fast Viability and Kill Switch Protocol
+
+This is the execution rule for avoiding sunk-cost loops. No project work
+continues unless it passes each gate below within the stated time budget.
+
+** Objective of each gate
+
+- Detect “definitely not viable” paths early.
+- Keep every failure as reusable evidence (for learning and backtracking).
+- Preserve velocity by enforcing strict, repeatable exit criteria.
+
+** Gate 0: Feasibility Screening (1 hour)
+
+Input: one paper/pipeline/approach under consideration.
+
+Pass only if all are true:
+- Target board token is explicit and maps to our board profile.
+- Input model path exists (or can be exported from PyTorch).
+- Kernel set is finite and implementable with a concrete front-end path.
+- At least one open dependency required for each stage is available this week.
+
+Fail reasons for immediate kill (high confidence):
+- No board profile compatibility.
+- Closed-only toolchain at any mandatory stage (e.g., required proprietary compiler/placer/SDK).
+- Paper claim requires non-reproducible manual setup (single private artifacts with no scripts).
+
+** Gate 1: Toy-Build Viability (1 day)
+
+Input: one operator or one block (quantized linear or depthwise matmul slice).
+
+Actions:
+- Generate one candidate from CP model.
+- Run full flow end-to-end: graph -> codegen -> yosys/nextpnr -> compile artifacts.
+- Execute a single HIL check with a fixed seed and fixed prompt.
+
+Pass only if:
+- Synth/route artifacts exist and are reusable.
+- No structural functional mismatch on the toy check.
+- Measured pass time is finite and repeatable (<= 2x variance on rerun with same seed).
+
+Kill conditions:
+- Build never reaches bitstream-ready artifact.
+- Reproducibility variance is unbounded (flaky failures > 30% across three reruns).
+- Functional mismatch on toy check.
+
+** Gate 2: Scalability Signal (2 days)
+
+Input: TinyStories-1M or equivalent tiny pipeline with same code path.
+
+Actions:
+- Run 2–3 model-size increments with same skeleton (e.g., 1M, 2M, 4M equivalent parameterization).
+- Keep all hyper-parameters fixed except model scale.
+
+Pass only if:
+- Same design path compiles for all three points without new manual edits.
+- Throughput and resource usage change as monotonic/understandable curves (no chaos).
+- Correctness gate remains stable (same top-1 on a fixed reference set).
+
+Kill conditions:
+- One size jump forces invasive manual redesign.
+- Non-monotonic behavior indicates brittle sizing assumptions.
+
+** Gate 3: Objective Pressure Test (3 days)
+
+Actions:
+- Compare this approach against current baseline on tokens/s and compile-time cost.
+
+Pass only if:
+- Better or equal latency/throughput at similar resource bracket.
+- Better or equal compile determinism (success rate, retries, wall time).
+- Clear path to the next model size step.
+
+Kill conditions:
+- No objective headroom after 3 fixed iterations.
+- Any advantage only from changing the target model definition instead of architectural gains.
+
+** Decision policy
+
+- If a gate fails: close ticket with a short evidence packet and mark as non-viable:
+  - command logs
+  - config + board profile hash
+  - failure mode code (tool-chain/dependency, functional, performance, compile variance)
+- If a gate passes: expand candidate set by one axis only.
+- Never open two new axes before both the objective and proof-of-correctness gates are passed.
+
+** Failure-as-evidence template
+
+Use this fixed schema for each rejected path:
+
+- `path_id`: unique id (paper/task/approach)
+- `hypothesis`: concise statement of expected gain
+- `evidence`:
+  - paper claim link
+  - commit hash or workflow id
+  - logs + artifact paths
+- `failure_mode`: one of {toolchain-block, reproducibility-fail, correctness-mismatch, compile-intractable, perf-miss, scale-brittle}
+- `measured_metric`: failing quantitative data
+- `exit_rationale`: why continuing is not efficient
+
+This turns ambiguous “maybe” work into explicit learning records and keeps you from optimizing in circles.

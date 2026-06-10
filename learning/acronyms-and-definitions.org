@@ -1,0 +1,50 @@
+# Acronyms and Definitions
+
+* Core architecture
+| Acronym | Meaning | Definition in this repo context |
+|---------+---------+--------------------------------|
+| FPGA | Field-Programmable Gate Array | Reconfigurable hardware used for custom LLM inference pipelines |
+| ASIC | Application-Specific Integrated Circuit | Fixed-function hardware, contrasted with FPGA reconfigurability |
+| SoC | System on Chip | FPGA device with integrated CPU, memory, and peripherals |
+| HBM | High-Bandwidth Memory | External memory used by large-capacity accelerator boards |
+| DDR | Double Data Rate SDRAM | Main low-latency memory interface on many FPGA boards |
+| KV cache | Key-Value cache | Stored attention keys/values used during autoregressive decoding |
+| KV cache miss | cache miss | Missing key/value entry requiring recomputation or extra fetch |
+| PE | Processing Element | Compute unit (e.g., MAC array/MatMul unit) used in accelerator design |
+| MAC | Multiply-Accumulate | Core arithmetic primitive in attention and matmul operations |
+| DSP | Digital Signal Processor block | FPGA hard IP block efficient for arithmetic (often MAC-like ops) |
+| URAM | Ultra RAM | Large internal FPGA RAM blocks useful for model state/weights |
+| BRAM | Block RAM | On-chip RAM primitive in Xilinx/AMD FPGAs |
+| LUT | Look-Up Table | Fundamental FPGA combinational resource |
+| FF | Flip-Flop | Storage element for sequential FPGA logic |
+| CLB | Configurable Logic Block | Coarse grain logic region containing LUT/FF resources |
+| DMA | Direct Memory Access | Engine to move tensors between memory tiers without CPU intervention |
+| AXI | Advanced eXtensible Interface | Common on-chip bus interface used in FPGA/SoC ecosystems |
+| PCIe | Peripheral Component Interconnect Express | Host-device interconnect for high-throughput data movement |
+
+* ML / model concepts
+| Acronym | Meaning | Definition in this repo context |
+|---------+---------+--------------------------------|
+| LLM | Large Language Model | Foundation model class for which we are surveying FPGA implementations |
+| MLP | Multi-Layer Perceptron | Feed-forward block in transformer architecture |
+| KV-Cache | Key-Value Cache | Same as KV cache; shorthand used in papers |
+| RoPE | Rotary Position Embedding | Position encoding scheme often mentioned in decoding latency discussions |
+| QKV | Query/Key/Value | Core transformer projection tensors |
+| RMSNorm | Root Mean Square Layer Norm | Normalization variant used in some accelerator-friendly LLMs |
+| AWQ | Activation-aware Weight Quantization | One of the quantization schemes appearing in surveyed work |
+| GPT | Generative Pretrained Transformer | Common model family evaluated in papers |
+| OPT | Open Pretrained Transformer | Open baseline model family used in several studies |
+| BERT | Bidirectional Encoder Representations from Transformers | Encoder-only baseline used in some FPGA workloads |
+
+* Build / tooling terms
+| Acronym | Meaning | Definition in this repo context |
+|---------+---------+--------------------------------|
+| HLS | High-Level Synthesis | C/C++/OpenCL to RTL synthesis path |
+| RTL | Register-Transfer Level | Verilog/SystemVerilog abstraction used for final hardware descriptions |
+| IP | Intellectual Property | Reusable hardware block IP, often black-boxes in flows |
+| DSE | Design Space Exploration | Structured search over architecture and implementation parameters |
+| Open-source toolflow | OSS FPGA stack | Synthesis/place/route + bitstream flow without proprietary vendor lock-in |
+| HLS/CIRCT/MLIR | MLIR-based hardware generation stack | Compiler path used to bridge model ops to FPGA-friendly RTL |
+| PYNQ | Python + FPGA framework | Python + notebook framework for board-level prototyping on some boards |
+| HLS C++ | HLS-targetable C++ subset | Common source representation in many surveyed papers |
+| PR | Partial Reconfiguration | Runtime reconfiguration of part of FPGA fabric |

@@ -1,0 +1,29 @@
+# Question Log (Learning First, Not Implementation)
+
+Use this file as your active Q&A workspace while reading the surveys and papers.
+
+* Guiding question framework
+- What part of the system does this paper change (model, compiler, memory, scheduling, interconnect)?
+- Which assumption limits portability to a Kintex-480T-class board?
+- What is the minimum benchmark and metric to compare two implementations fairly?
+- Which toolchain assumptions block open-source implementation?
+
+* Open questions
+| Date | Theme | Question | Current answer | Next action |
+|------+-------+----------+---------------+-------------|
+| 2026-06-10 | Workflow | How do we define "reusability" for a paper in a learning repo? | Define as: publicly available design + clear model/interface assumptions + reproducible metrics. | Track and refine this rubric. |
+| 2026-06-10 | Paper triage | Why does a paper with public code still score low OSS-toolflow feasibility? | Because many repos depend on proprietary build chains even when code is open. | Expand per-repo dependency audit in each paper note. |
+| 2026-06-10 | Scope | What is the minimum viable study path for 1a papers on a Kintex-480T? | Prioritize XtraMAC, MASE, and Spatial acceleration as structural anchors. | Confirm with one-paper deep reads next. |
+| 2026-06-10 | Systems | How should paper comparisons be normalized? | Use a fixed sheet: model size, precision, memory model, compute architecture, toolchain, and reported metrics. | Build this comparison table when first paper deep read begins. |
+
+* Answered questions
+- How do these two surveys relate?  
+  The first file is the full list; the later survey is a reclassification for OSS + Kintex-480T constraints.
+- How many papers are in the 1a set?  
+  27 papers (including non-1a phase 1b and 1c entries included in the list).
+
+* To fill during reading
+- [[file:../surveys/1a-paper-registry.org][Paper Registry]]:
+  - add 1-line summary per paper
+  - add "systems risk" (memory, interface, control flow, verification complexity)
+  - track follow-up questions per paper

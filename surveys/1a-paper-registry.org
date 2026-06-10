@@ -1,0 +1,45 @@
+# Learning Paper Registry (1a + 1a-OpenFlow)
+
+* Scope
+These are the papers captured from:
+- [[file:1a-survey.org][deliverables/1a-survey.org]] (full universe)
+- [[file:1a-openflow-kintex480t-survey.org][1a-openflow-kintex480t-survey.org]] (Kintex-480T + OSS-reconstruction lens)
+
+The table below keeps a normalized index for learning notes and cross-paper comparisons.
+
+| ID | Paper / Repo Name | 1a Phase | Open-Source Code | OSS Toolflow | Kintex-480T Practicality |
+|---+-------------------+----------+------------------+-------------+--------------------------|
+| 1  | TeLLMe (arXiv:2504.16266) | 1a | No | No | Low |
+| 2  | FPGA-Based Tiled MatMul on KV260 (arXiv:2503.16731v3) | 1a | Yes | Low | Low-Medium |
+| 3  | TerEffic (arXiv:2502.16473) | 1a | No | Low | Low |
+| 4  | MEADOW (arXiv:2503.11663) | 1a | No | Low | Low |
+| 5  | FlightLLM (arXiv:2401.03868) | 1a | No | Low | Low |
+| 6  | SECDA-LLM (arXiv:2408.00462) | 1a | No | Low | Low |
+| 7  | MatMul-free LM (arXiv:2406.02528) | 1a | No | Low | Low |
+| 8  | LoopLynx (arXiv:2504.09561) | 1a | Yes | Low | Low |
+| 9  | MASE (arXiv:2307.15517v2) | 1a | Yes | Medium-High | Medium |
+| 10 | On-Device Qwen2.5 (arXiv:2504.17376) | 1a | No | Low | Low |
+| 11 | HLSTransform (arXiv:2405.00738) | 1a | Yes | Low | Low-Medium |
+| 12 | Spatial acceleration (arXiv:2312.15159) | 1a | Yes | Medium | Medium-Low |
+| 13 | AccLLM (arXiv:2505.03745) | 1a | No | Low | Low |
+| 14 | HLS with MLIR and CIRCT (Latte22) | 1b | Yes | Medium-High | Low |
+| 15 | StreamTensor (arXiv:2509.13694) | 1c | No | No | Medium-Low |
+| 16 | FAST-Prefill (arXiv:2602.20515) | 1a | No | Low | Medium-Low |
+| 17 | FlexLLM (arXiv:2601.15710) | 1a | No | Low | Low-Medium |
+| 18 | SkipOPU (arXiv:2603.14785) | 1a | No | Low | Low |
+| 19 | Understand and Accelerate Memory Processing Pipeline for Disaggregated LLM Inference (arXiv:2603.29002) | 1a | No | Low | Low |
+| 20 | LLM-Driven Design Space Exploration of FPGA-based Accelerators (arXiv:2605.05920) | 1a | No | Low | Low |
+| 21 | XtraMAC (arXiv:2605.06052) | 1a | Yes | Medium-High | Medium |
+| 22 | SpecMamba (arXiv:2509.19873) | 1a | No | Low | Low |
+| 23 | TeLLMe v2 (arXiv:2510.15926) | 1a | No | Low | Low-Medium |
+| 24 | LUT-LLM (arXiv:2511.06174) | 1a | No | Low | Low |
+| 25 | Efficient Kernel Mapping and Comprehensive System Evaluation of LLM Acceleration on a CGLA (arXiv:2512.00335) | 1a | No | Low | Low-Medium |
+| 26 | PD-Swap (arXiv:2512.11550) | 1a | No | Low | Low |
+| 27 | FPGA Co-Design for Efficient N:M Sparse and Quantized Model Inference (arXiv:2512.24713) | 1a | No | No (withdrawn) | Low |
+
+* Working notes
+- Prioritize papers that are both open and practical for open-source Kintex-480T workflows:
+  - XtraMAC (ID 21)
+  - MASE (ID 9)
+  - Spatial acceleration (ID 12)
+  - HLSTransform / HLS with MLIR-CIRCT (ID 11, 14) as method references

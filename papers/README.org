@@ -1,0 +1,33 @@
+# Local Paper PDFs
+
+Downloaded from survey-referenced links on 2026-06-10.
+
+| Status | Source | Local file |
+|--------+--------+------------|
+| OK | arXiv:2307.15517v2 | papers/arxiv-2307.15517v2.pdf |
+| OK | arXiv:2312.15159 | papers/arxiv-2312.15159.pdf |
+| OK | arXiv:2401.03868 | papers/arxiv-2401.03868.pdf |
+| OK | arXiv:2405.00738 | papers/arxiv-2405.00738.pdf |
+| OK | arXiv:2406.02528 | papers/arxiv-2406.02528.pdf |
+| OK | arXiv:2408.00462 | papers/arxiv-2408.00462.pdf |
+| OK | arXiv:2502.16473 | papers/arxiv-2502.16473.pdf |
+| OK | arXiv:2503.11663 | papers/arxiv-2503.11663.pdf |
+| OK | arXiv:2503.16731 | papers/arxiv-2503.16731.pdf |
+| OK | arXiv:2504.09561 | papers/arxiv-2504.09561.pdf |
+| OK | arXiv:2504.16266 | papers/arxiv-2504.16266.pdf |
+| OK | arXiv:2504.17376 | papers/arxiv-2504.17376.pdf |
+| OK | arXiv:2505.03745 | papers/arxiv-2505.03745.pdf |
+| OK | arXiv:2509.13694 | papers/arxiv-2509.13694.pdf |
+| OK | arXiv:2509.19873 | papers/arxiv-2509.19873.pdf |
+| OK | arXiv:2510.15926 | papers/arxiv-2510.15926.pdf |
+| OK | arXiv:2511.06174 | papers/arxiv-2511.06174.pdf |
+| OK | arXiv:2512.00335 | papers/arxiv-2512.00335.pdf |
+| OK | arXiv:2512.11550 | papers/arxiv-2512.11550.pdf |
+| OK | arXiv:2601.15710 | papers/arxiv-2601.15710.pdf |
+| OK | arXiv:2602.20515 | papers/arxiv-2602.20515.pdf |
+| OK | arXiv:2603.14785 | papers/arxiv-2603.14785.pdf |
+| OK | arXiv:2603.29002 | papers/arxiv-2603.29002.pdf |
+| OK | arXiv:2605.05920 | papers/arxiv-2605.05920.pdf |
+| OK | arXiv:2605.06052 | papers/arxiv-2605.06052.pdf |
+| OK | latte22 paper PDF (capra) | papers/latte22-papers-2.pdf |
+| FAIL | arXiv:2512.24713 | not downloaded (HTTP 404) |

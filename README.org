@@ -1,0 +1,25 @@
+# LLM2FPGA Research (Learning Repo)
+
+This repository is intentionally learning-first: paper collection, comparison, glossary, and question tracking.
+No RTL/tool execution is required in this branch.
+
+* Current scope
+- Ingested surveys:
+  - [[file:surveys/1a-survey.org][deliverables/1a-survey.org]]
+  - [[file:surveys/1a-openflow-kintex480t-survey.org][1a-openflow-kintex480t-survey.org]]
+- Combined reference index:
+  - [[file:surveys/1a-paper-registry.org][1a-paper-registry.org]]
+
+* Study artifacts
+- [[file:learning/acronyms-and-definitions.org][acronyms-and-definitions.org]]
+- [[file:notes/questions.org][questions.org]]
+
+* Papers
+- [[file:papers][papers/]] contains local PDF copies of every paper link found in the surveys.
+- One entry (`2512.24713`) is currently unavailable on arXiv (`404`) and could not be downloaded in this pass.
+
+* Recommended workflow
+1. Read a paper entry in the registry.
+2. Add a short note in the registry or a per-paper note file (future step).
+3. Capture any gaps as questions in [[file:notes/questions.org][questions.org]].
+4. Normalize key metrics in comparison tables before judging which designs are practical for Kintex-480T and OSS toolchains.

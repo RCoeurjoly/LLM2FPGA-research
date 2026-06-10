@@ -1,0 +1,98 @@
+# LLM2FPGA Tooling Survey (Optimization, Model, FPGA, HDL)
+
+Goal: build a practical map of tools and plugin-level connections that matter for an
+open-source, Kintex-480T-first workflow.
+
+* Legend
+- O: open source-first in source
+- O/P: open but depends on proprietary or board-specific tools for parts
+- P: mostly proprietary / limited OSS portability
+- Maturity: *Research* (paper/prototype), *Experimental* (working but niche), *Production* (battle-tested)
+
+* 1) Constraint + Search Tooling Layer
+
+| Area | Tool | Role | Notes | Integration points | Maturity | Source openness |
+|------+------|------|-------|-------------------|----------|----------------|
+| CP-SAT / CP | OR-Tools (Google) | Integer/constraint scheduling, sequencing, assignment | Strong Python ecosystem; fast for MILP-like constraints and combinatorial scheduling; weaker for huge routing-style exact models | Python-native API to emit candidate configs from PyTorch model graph/shape metadata | Production | O |
+| Modeling language | MiniZinc | Constraint model authoring (declarative) + solver portability | Good for rapid prototyping and solver comparison, then swap backend later | JSON/flat model handoff to custom runners; useful for policy and hard constraints | Production | O |
+| CP/ASP/SAT bridge | OR-Tools CP-SAT + CP plugins in CP-SAT | Add non-linear scheduling and cardinality constraints | Useful when integrating hard limits: LUT/BRAM, bandwidth, on-chip buffers | Keep as front-end filter before physical synthesis | Experimental | O |
+| MILP/ILP solver | Pyomo + CBC/HiGHS/SCIP | Relaxations and cost models; useful for coarse pruning | Useful for dual bounds and lower-bound checks against CP candidate sets | Useful for pruning before CP/RTL loops | Production | O |
+| SMT | Z3 + PySMT | Safety/feasibility constraints, resource consistency, cross-module invariants | Good for “must-not-violate” rules: bitwidth bounds, bus widths, alignment, latency guards | Use as feasibility checker for rejected candidate explanations | Production | O |
+| Exact logic search | JaCoP / Choco / OR-Tools search | Legacy CP in Java ecosystem + educational/reproducible model baselines | Potentially useful for reproducible CP baselines in papers and for benchmarking your own models | Good backup if you need cross-checked CP behaviour | Experimental | O |
+
+* 2) ML Model Intake & Graph Tooling
+
+| Tool | What it does | Where it plugs | Useful for | Typical status |
+|------+-------------+----------------|-----------|----------------|
+| PyTorch | Source of truth for baseline LLM operators, training checkpoints, tracing | Front-end: export graph + module metadata | Gives operators, tensor shapes, quantization hooks, control structure | Production |
+| torch.fx | Functional graph capture/transforms | Captures FX graph to identify operator-level tiling opportunities | Good abstraction boundary before ONNX lowering | Production |
+| torch.export | Stable graph export for newer torch versions | Exported graphs for downstream tooling | Better than raw tracing for control flow-sensitive graphs | Experimental |
+| ONNX | Interop graph format between frameworks and compilers | Core interchange between torch / TVM / custom compilers | Standard export for accelerator front-ends | Production |
+| onnxruntime | Reference runtime + graph transforms | Sanity checks and baseline model opset handling | Use as validation oracle for graph semantics | Production |
+| QONNX | Quantized ONNX support (conversion/annotation) | Quantization-oriented front-end path | Helps keep int/bit-width policy explicit before hardware mapping | Experimental |
+| hls4ml | NN-to-HLS/HDL conversion patterns for ML | Works with Keras/ONNX flows for structured low-precision blocks | Useful for baseline HLS-style operator generation patterns | Production (community-maintained, model-type specific) |
+| FINN (Xilinx) | Quantized DNN dataflow compiler | High-level accelerator generation for Xilinx targets | Useful templates for dataflow and quantization; historically Vitis-oriented | O/P |
+| TVM + Relax/Relay | Full compiler stack for operators and tensor codegen | Explore operator lowering and schedule auto-tuning | Strong for autotuning, mixed hardware, but FPGA flow can require custom backend glue | Production |
+| torch-mlir | MLIR bridge for torch graphs | Direct MLIR dialect path before HLS/RTL generation | Useful if you want custom compiler passes and strict graph transforms | Production |
+| IREE | MLIR-based compiler, runtime lowering for accelerators | Emerging for non-CUDA backends | Useful for compiler architecture patterns and runtime/ABI conventions | Experimental |
+| NART / nncase / VTA ecosystems | Tiny inference toolchains | VTA-like dataflow and compiler stacks for accel hardware | Useful for template kernels and data movement ideas | Experimental |
+
+* 3) FPGA / HLS / Hardware Synthesis Tooling
+
+| Tool | Role | OSS? | Strength for this project | Integration caveats |
+|------+------|------|--------------------------|--------------------|
+| yosys | Logic synthesis, pass infra, netlist ops | O | Core open synthesis backbone; good for bit-accurate transformations and sanity builds | Limited SystemVerilog feature coverage; best with constrained code styles |
+| sv2v | SystemVerilog -> Verilog converter | O | Enables subset conversion for older flows | Not a full SV compiler; may miss advanced constructs |
+| slang | SystemVerilog parser/front-end | O | Better parsing/analysis than many legacy Verilog parsers | Build/CLI learning overhead |
+| Surelog + UHDM | SV/Verilog elaboration + hierarchy | O | Good for robust frontend parsing and design database | Ecosystem still evolving |
+| verilator | Fast cycle-accurate simulation / lint | O | Great for CI tests, regression checks, and pre-P&R validation | Not a synthesis tool |
+| iverilog | Verilog simulation | O | Lightweight simulation for unit-level checks | Limited SV and modern constructs |
+| ghdl | VHDL compiler/simulation | O | Needed if VHDL blocks are in play | Mixed-language co-sim requires care |
+| nextpnr + nextpnr-xilinx | Placement & routing | O/P (supports specific backends) | Primary target for your open-source workflow; fast iteration | Xilinx support and architecture coverage not as wide as commercial tools |
+| symbiyosys | Formal verification around yosys | O | Useful to prove small contracts and sanity invariants | Requires strong property discipline |
+| qrouter (limited relevance) | Academic routing path in some flows | O | Experimental alternative for exploratory routing experiments | Not primary for Xilinx class targets |
+| YosysHQ ecosystem plugins | Various backends and passes | O | Build custom passes for extraction/canonicalization of candidate modules | Choose maturity per plugin |
+
+* 4) HDL, Verification, and Artifact Validation Layer
+
+| Tool | Focus | Why it matters | Typical use |
+|------+-------|---------------|-----------|
+| cocotb | Python-driven HDL testbenching | End-to-end behavioral checks against host reference | Golden checkers for tiny-model passes and quantized correctness |
+| Verilator + VPI/VHPI | Fast simulation + DPI hooks | Tight integration with python/perf scripts | Useful for quick regression gates |
+| pytest + golden JSON/np compare | Behavioral verification scaffolding | Ensure output parity for sampled prompts and kernels | Prevents silent correctness drift |
+| yosys-smtbmc / formal (with SymbiYosys) | Formal properties | Guarantees for buffer overflows, handshake, control FSM constraints | Useful for safety-critical kernels |
+| svlint / verilator-lint / verible | Lint/format/style checks | Keeps generated HDL manageable and deterministic | Useful for generated code quality |
+
+* 5) Plugins, bridges, and practical connection points
+
+| Origin -> Target | Bridge / plugin | Purpose | Actionability for this repo |
+|------------------+----------------|---------|-------------------------|
+| PyTorch -> ONNX | torch.onnx.export / onnx-export tooling | Convert checkpoints into graph + node metadata | High: required first step for graph-level DSE |
+| ONNX -> Custom pass graph | onnxsim / custom Python graph passes | Shape inference, folding, and operator canonicalization | High: reduces accidental solver-state inflation |
+| ONNX -> HLS-like IR | hls4ml / custom ONNX-to-HLS translators | Operator-specific scheduling candidates | High: start with MLP/attention blocks first |
+| Torch-MLIR -> CIRCT | Torch-MLIR/MLIR dialect lowering | Keep control of optimization vs hardware legality | Medium: useful if you want custom MLIR pass graph |
+| MLIR -> RTL | CIRCT | Convert typed hardware-oriented IR toward RTL | Medium: useful when you need typed hardware contracts |
+| HLS/CIRCT -> RTL -> Yosys | nextpnr flow | Final synthesis and placement loop | Core path for open-source execution |
+| Verilog <- Generated kernels | sv2v/slang/UHDM as needed | Handle SV dialect mismatch and normalize test targets | Medium: mostly needed for legacy blocks |
+| Sim outputs -> CP/DSE feedback | cocotb/pytest traces + parser -> OR-Tools constraints | Build failure-driven constraints: timing/route/resource vetoes | High: this is your “self-correcting search” path |
+| Build logs -> metadata | board profile + JSON schema | Store runtime/resource traces for reranking candidates | High: improves actionability and reproducibility |
+
+* 6) Recommended stack for your constraints (today)
+
+Given your goals (open tooling, Kintex-480T fixed target, tiny-to-scale):
+
+1. Use PyTorch/ONNX intake only for model and metadata capture.
+2. Keep an explicit graph-normalization pass (operator canonicalization, quant policy extraction).
+3. For each candidate configuration, solve quickly with OR-Tools CP-SAT + MiniZinc-style model spec templates.
+4. Feed only feasible candidates to lightweight kernel codegen or RTL templates.
+5. Validate with cocotb + verilator first, then run yosys + nextpnr-xilinx for physical feasibility.
+6. Store every failed build as solver constraints for next loop (nogood learning).
+
+This keeps the search loop fast and lets you grow from tiny kernels to full pipelines without depending on proprietary compile steps.
+
+* 7) Quick prioritization of what to try first
+
+- Immediate: OR-Tools, MiniZinc, PyTorch->ONNX, onnxruntime, yosys/nextpnr-xilinx, cocotb, verilator
+- Near-term: torch-mlir, CIRCT, slang/surelog/UHDM, SymbiYosys
+- Useful later: TVM relay scheduling, IREE, Optuna/NNI style autotuning wrappers around DSE
+- Keep for paper-anchored experiments: hls4ml and FINN style templates for mapping patterns, not for your direct RTL final target unless adapted

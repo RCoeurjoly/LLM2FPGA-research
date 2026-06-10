@@ -19,6 +19,7 @@ open-source, Kintex-480T-first workflow.
 | MILP/ILP solver | Pyomo + CBC/HiGHS/SCIP | Relaxations and cost models; useful for coarse pruning | Useful for dual bounds and lower-bound checks against CP candidate sets | Useful for pruning before CP/RTL loops | Production | O |
 | SMT | Z3 + PySMT | Safety/feasibility constraints, resource consistency, cross-module invariants | Good for “must-not-violate” rules: bitwidth bounds, bus widths, alignment, latency guards | Use as feasibility checker for rejected candidate explanations | Production | O |
 | Exact logic search | JaCoP / Choco / OR-Tools search | Legacy CP in Java ecosystem + educational/reproducible model baselines | Potentially useful for reproducible CP baselines in papers and for benchmarking your own models | Good backup if you need cross-checked CP behaviour | Experimental | O |
+| Model constraints bridge | GeoTorch | PyTorch manifold-constrained parametrization toolkit (orthogonal, low-rank, PSD, invertible, etc.) | Keeps model family structured *before* synthesis so search can move in small, interpretable axes | Connects training-time constraint encoding to DSE knobs (rank/orthogonality/etc.), then export via ONNX/torch as usual | Experimental | O |
 
 * 2) ML Model Intake & Graph Tooling
 
@@ -69,6 +70,7 @@ open-source, Kintex-480T-first workflow.
 |------------------+----------------|---------|-------------------------|
 | PyTorch -> ONNX | torch.onnx.export / onnx-export tooling | Convert checkpoints into graph + node metadata | High: required first step for graph-level DSE |
 | ONNX -> Custom pass graph | onnxsim / custom Python graph passes | Shape inference, folding, and operator canonicalization | High: reduces accidental solver-state inflation |
+| PyTorch -> Constraint-aware candidate models | GeoTorch | Apply orthogonal/low-rank/invertible/PSD constraints in model tensors at definition time | High: controls model family before DSE, reducing search from high-dimensional weight space | Useful when your first filter is architectural regularization, not RTL-only changes |
 | ONNX -> HLS-like IR | hls4ml / custom ONNX-to-HLS translators | Operator-specific scheduling candidates | High: start with MLP/attention blocks first |
 | Torch-MLIR -> CIRCT | Torch-MLIR/MLIR dialect lowering | Keep control of optimization vs hardware legality | Medium: useful if you want custom MLIR pass graph |
 | MLIR -> RTL | CIRCT | Convert typed hardware-oriented IR toward RTL | Medium: useful when you need typed hardware contracts |

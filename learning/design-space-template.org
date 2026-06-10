@@ -1,0 +1,398 @@
+# Design-Space Evaluation Template (Paper-by-Paper)
+
+Use this template to convert each paper from a “name” into an engineering assessment.
+Keep entries short and evidence-linked to the survey tables and PDFs.
+
+To prevent speculative summaries, every card in this file starts as provisional and must be
+upgraded to verified status when the PDF is read.
+
+- Status: *S* = based on survey table only.
+- Status: *P* = verified from PDF text/tables/figures.
+- Status: *U* = unknown or ambiguous.
+
+* Common fields
+
+1. Paper ID
+2. Problem statement
+3. Target workload (e.g., GPT-style LLM, Mamba, generic model)
+4. Primary subsystem affected (Model / Compilation / Architecture / Memory / Runtime / DSE)
+5. Main optimization tactic
+6. Resource assumptions (FPGA class, memory, HBM/DDR, multi-device)
+7. Equivalence strategy (how it maps to PyTorch/CPU baseline)
+8. Scalability signals (model size, seq length, batch)
+9. OSS implementation viability (code + toolchain + reproducibility)
+10. Kintex-480T suitability (quick judgement)
+11. What to verify next (explicit open question)
+
+* Current paper cards (pre-populated from current registry)
+
+** ID 1: TeLLMe (arXiv:2504.16266)
+Status: P
+- Problem: first FPGA design in this repo to claim full support for both prefill and autoregressive decoding on one edge accelerator.
+- Target workload: ternary LLM inference (1.58-bit weights, 8-bit activations), with evaluations including Bitnet W1.58 and LLaMA2-style models.
+- Primary subsystem: Architecture + scheduling + memory system.
+- Tactic: table-lookup ternary matmul engine, fused prefill/decoding attention with reverse reorder, and quantization/dequantization units.
+- Resource assumptions: AMD/Kria KV260 target (Zynq UltraScale+), 7 W power target.
+- Equivalence strategy: functional validation appears at accelerator-level comparison, but no full framework for proving PyTorch equivalence is stated.
+- Scalability: supports up to 1024-token context and reports prefill latency 0.55–1.15 s and 9.51 tokens/s in KV260 evaluations.
+- OSS viability: No (artifact-only status in current registry; no code link confirmed in repo data).
+- Kintex-480T: Low.
+- Verify: confirm end-to-end parity protocol and whether the extra prefill-optimized logic affects equivalence assumptions.
+- Evidence sources: Abstract; Intro & Sec. III (system decomposition); Sec. IV (results, Table IV, Table V).
+
+** ID 2: FPGA-Based Tiled MatMul on KV260 (arXiv:2503.16731)
+Status: S
+- Problem: practical matmul acceleration in LLM pipeline.
+- Target workload: DistilBERT, QKV path focus.
+- Primary subsystem: Computation kernel.
+- Tactic: tiled matmul in Vitis HLS + PYNQ integration.
+- Resource assumptions: KV260 class board.
+- Equivalence strategy: inference integration claimed with model path.
+- Scalability: ~66M parameters.
+- OSS viability: Source exists but OSS toolflow is low due Vitis dependence.
+- Kintex-480T: Low-Medium.
+- Verify: kernel utilization and end-to-end latency comparison protocol.
+
+** ID 3: TerEffic (arXiv:2502.16473)
+Status: S
+- Problem: scalable matmul-free LLM inference architecture.
+- Target workload: Custom matmul-free LLM (370M–2.7B).
+- Primary subsystem: Computation model + architecture.
+- Tactic: ternary/algebraic transform away from standard matmul heavy flow.
+- Resource assumptions: U280/HBM or multi-FPGA variant.
+- Equivalence strategy: reported LLM inference claims; no open-code reimplementation route.
+- Scalability: very large model support claims.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: pipeline correctness for model variants and mapping requirements.
+
+** ID 4: MEADOW (arXiv:2503.11663)
+Status: S
+- Problem: small-to-medium model acceleration with dataflow + weight packing.
+- Target workload: OPT-125M and OPT-1.3B.
+- Primary subsystem: Architecture + memory-aware dataflow.
+- Tactic: TPHS pipeline and packing scheme.
+- Resource assumptions: ZCU102.
+- Equivalence strategy: end-to-end inference claims reported.
+- Scalability: mid-size transformer blocks.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: packing ratio impact on numerical drift.
+
+** ID 5: FlightLLM (arXiv:2401.03868)
+Status: S
+- Problem: high-end throughput inference with sparse DSP approach.
+- Target workload: Llama/OPT style larger models (1.1B+ range listed).
+- Primary subsystem: Full-stack accelerator.
+- Tactic: sparse DSP chain + adaptive compilation.
+- Resource assumptions: U280 / Versal, multi-power path.
+- Equivalence strategy: no open code in survey; baseline not directly reproducible here.
+- Scalability: large-model focus.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: sparsity policy impact on output quality.
+
+** ID 6: SECDA-LLM (arXiv:2408.00462)
+Status: S
+- Problem: lower-precision inference with SECDA flow.
+- Target workload: TinyLlama.
+- Primary subsystem: Architecture + toolflow.
+- Tactic: custom matmul path with BFP and speculative support.
+- Resource assumptions: low-end board class (PYNQ-Z1).
+- Equivalence strategy: integrated with llama.cpp path (per notes).
+- Scalability: tiny-model target.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: BFP behavior at edge cases and compiler assumptions.
+
+** ID 7: MatMul-free LM (arXiv:2406.02528)
+Status: S
+- Problem: avoid matmul bottleneck with elementwise-centric model design.
+- Target workload: 370M–2.7B class.
+- Primary subsystem: Algorithmic architecture.
+- Tactic: matmul-free ternary representation.
+- Resource assumptions: Intel PAC D5005, no HBM.
+- Equivalence strategy: architecture claims; code unavailable (public promise not fulfilled).
+- Scalability: broad size band; resource and timing uncertainty.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: operator mapping correctness and token-level parity.
+
+** ID 8: LoopLynx (arXiv:2504.09561)
+Status: S
+- Problem: high throughput multi-kernel transformer inference.
+- Target workload: GPT-2 and scaling scenarios.
+- Primary subsystem: Runtime + architecture co-design.
+- Tactic: hybrid spatial-temporal HLS dataflow, multi-FPGA scaling.
+- Resource assumptions: U50/U280 multi-device.
+- Equivalence strategy: benchmarked end-to-end.
+- Scalability: good scaling in paper scope; board-heavy.
+- OSS viability: Limited by Vitis-HLS dependency.
+- Kintex-480T: Low.
+- Verify: cross-device synchronization overhead model.
+
+** ID 9: MASE (arXiv:2307.15517v2)
+Status: S
+- Problem: decode-oriented speedup via architecture-level changes.
+- Target workload: GPT-2.
+- Primary subsystem: Architecture + control.
+- Tactic: speculative decode in RTL and KV cache integration.
+- Resource assumptions: U250 class.
+- Equivalence strategy: supports GPT-style models; no full open replication details here.
+- Scalability: medium; open RTL suggests stronger reuse potential.
+- OSS viability: Yes (open code), but board flow details matter.
+- Kintex-480T: Medium.
+- Verify: speculative correctness under adversarial token distributions.
+
+** ID 10: On-Device Qwen2.5 (arXiv:2504.17376)
+Status: S
+- Problem: bring int4 AWQ inference to edge FPGA setting.
+- Target workload: Qwen2.5-0.5B.
+- Primary subsystem: Quantization and mixed execution.
+- Tactic: AWQ + CPU+FPGA split pipeline.
+- Resource assumptions: KV260 class board.
+- Equivalence strategy: claims INT4/quantized equivalence path; not documented here.
+- Scalability: medium-small edge target.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: quantization-aware host-FPGA synchronization effects.
+
+** ID 11: HLSTransform (arXiv:2405.00738)
+Status: S
+- Problem: practical LLM acceleration with an HLS library/flow.
+- Target workload: LLaMA-2-class models.
+- Primary subsystem: Compilation + kernel generation.
+- Tactic: full flow with HLS and quantized kernels.
+- Resource assumptions: VU9P-class target.
+- Equivalence strategy: end-to-end flow and energy metric claims.
+- Scalability: small-to-mid models.
+- OSS viability: code available but Vitis dependent.
+- Kintex-480T: Low-Medium.
+- Verify: cross-platform output drift under INT8/Q8_0 policies.
+
+** ID 12: Spatial acceleration (arXiv:2312.15159)
+Status: S
+- Problem: dataflow template for transformer acceleration.
+- Target workload: BERT/GPT-2.
+- Primary subsystem: Architecture + compiler-generated HLS kernels.
+- Tactic: spatial dataflow, analytical design model.
+- Resource assumptions: U280 class.
+- Equivalence strategy: open examples in paper context; full methodology still requires validation.
+- Scalability: moderate.
+- OSS viability: Partial/open examples.
+- Kintex-480T: Medium-Low.
+- Verify: template transferability to smaller fabric.
+
+** ID 13: AccLLM (arXiv:2505.03745)
+Status: S
+- Problem: multi-node sparse-matmul LLM inference.
+- Target workload: LLaMA-7B, Falcon-7B.
+- Primary subsystem: Full accelerator system + interconnect.
+- Tactic: sparse matmul and custom interconnect.
+- Resource assumptions: U280×4 / VCU118 multi-card.
+- Equivalence strategy: end-to-end deployment claims; code not available.
+- Scalability: large-model focus.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: sparse kernel quality vs sparse mask structure.
+
+** ID 14: HLS with MLIR and CIRCT (Latte22)
+Status: S
+- Problem: bridge ML IR and HLS-compatible RTL generation.
+- Target workload: generic ML models; not LLM-specific.
+- Primary subsystem: Compiler methodology.
+- Tactic: CIRCT + MLIR lowering pipeline.
+- Resource assumptions: architecture-agnostic in method.
+- Equivalence strategy: not LLM-anchored directly.
+- Scalability: depends on downstream mapping.
+- OSS viability: High (open framework).
+- Kintex-480T: Low.
+- Verify: mapping fidelity for transformer ops in your stack.
+
+** ID 15: StreamTensor (arXiv:2509.13694)
+Status: S
+- Problem: compiler-driven streaming tensor architecture.
+- Target workload: transformer LLMs.
+- Primary subsystem: Compilation + stream architecture.
+- Tactic: iterative tensor (itensor), fusion, FIFO sizing, DMA generation.
+- Resource assumptions: vendor board + HLS flow.
+- Equivalence strategy: claims full PyTorch→streaming path; code currently unavailable.
+- Scalability: model-dependent.
+- OSS viability: Low in this repo state (no code).
+- Kintex-480T: Medium-Low.
+- Verify: whether streaming IR can be made deterministic for your models.
+
+** ID 16: FAST-Prefill (arXiv:2602.20515)
+Status: S
+- Problem: long-context prefill speed bottleneck.
+- Target workload: Llama/Qwen prefill-heavy scenarios.
+- Primary subsystem: Attention scheduling/runtime.
+- Tactic: sparse-index generation + dual-tier KV cache.
+- Resource assumptions: U280 class.
+- Equivalence strategy: no open implementation in repo.
+- Scalability: strong for long contexts.
+- OSS viability: No.
+- Kintex-480T: Medium-Low.
+- Verify: cache policy stability across prompt distributions.
+
+** ID 17: FlexLLM (arXiv:2601.15710)
+Status: S
+- Problem: library-level configurable accelerator blocks.
+- Target workload: Llama-3.2 1B.
+- Primary subsystem: Architecture + memory hierarchy.
+- Tactic: hierarchical memory transformer with HLS library.
+- Resource assumptions: U280 16nm.
+- Equivalence strategy: report-oriented end-to-end LLM inference.
+- Scalability: small model in report, designed for extension.
+- OSS viability: No (source not listed in arXiv page metadata).
+- Kintex-480T: Low-Medium.
+- Verify: reusability of library abstractions to open toolchain.
+
+** ID 18: SkipOPU (arXiv:2603.14785)
+Status: S
+- Problem: runtime-aware compute allocation.
+- Target workload: open LLM classes.
+- Primary subsystem: Runtime scheduling + control.
+- Tactic: token/layer dynamic routing with reduction-sharing overlay.
+- Resource assumptions: U280 single board.
+- Equivalence strategy: claims improved KV traffic profile; implementation not public.
+- Scalability: depends on overlay flexibility.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: routing determinism and worst-case latency under adversarial text.
+
+** ID 19: Memory Pipeline Disaggregation (arXiv:2603.29002)
+Status: S
+- Problem: memory-bound stage acceleration in heterogeneous GPU+FPGA stack.
+- Target workload: multiple LLM inference variants.
+- Primary subsystem: System partitioning.
+- Tactic: split into 4 memory-processing stages and profile-driven allocation.
+- Resource assumptions: MI210 + Alveo U55C.
+- Equivalence strategy: heterogeneous execution assumptions; needs integration checks.
+- Scalability: model-dependent with host-accelerator boundary.
+- OSS viability: No code in notes.
+- Kintex-480T: Low.
+- Verify: transfer overlap assumptions under sustained load.
+
+** ID 20: LLM-Driven DSE of FPGA-based Accelerators (arXiv:2605.05920)
+Status: P
+- Problem: reduce manual hand-tuning burden in accelerator DSE.
+- Target workload: generic FPGA accelerator design space (paper frames examples as CNNs/LLMs, not model inference correctness).
+- Primary subsystem: DSE workflow and feedback orchestration.
+- Tactic: DSE Explorer proposes SECDA-native configurations; LLM Stack uses retrieval-augmented reasoning plus chain-of-thought guidance to refine candidates.
+- Resource assumptions: SECDA/SECDA-TFLite workflows validated on Zynq-7000 and using Vivado HLS simulation and FPGA execution.
+- Equivalence strategy: validates design-loop behavior via latency/resource metrics and hardware data points, not model-output parity.
+- Scalability: explicitly limited by current preliminary scope (small workload set + iterative human-in-the-loop).
+- OSS viability: No in current repo (no confirmed runnable repo links in registry).
+- Kintex-480T: Low.
+- Verify: broaden benchmark set and quantify whether the loop can sustain useful Pareto progress over many targets.
+- Evidence sources: Abstract + Sect. III (workflow), Sect. IV (preliminary evaluation, constraints), plus HLS/FPGA metrics in Section IV.
+
+** ID 21: XtraMAC (arXiv:2605.06052)
+Status: S
+- Problem: mixed-precision MAC efficiency on FPGA.
+- Target workload: mixed precision LLM inference.
+- Primary subsystem: Datapath primitive design.
+- Tactic: single MAC path supporting dynamic datatype mixture.
+- Resource assumptions: Xilinx U55C.
+- Equivalence strategy: compute primitive-level focus; must be wrapped in wider pipeline.
+- Scalability: model-agnostic primitive, moderate reuse.
+- OSS viability: Yes (repo listed in source).
+- Kintex-480T: Medium.
+- Verify: mapping from MAC abstraction to full transformer scheduler.
+
+** ID 22: SpecMamba (arXiv:2509.19873)
+Status: S
+- Problem: Mamba acceleration with speculative decoding.
+- Target workload: Mamba model family.
+- Primary subsystem: Architecture + speculative control.
+- Tactic: speculative tree + hybrid backtracking.
+- Resource assumptions: VHK158 / VCK190.
+- Equivalence strategy: paper-focused claims; code status not listed.
+- Scalability: new workload class (sequence models beyond transformer).
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: speculative branch safety and rollback cost model.
+
+** ID 23: TeLLMe v2 (arXiv:2510.15926)
+Status: S
+- Problem: end-to-end ternary prefill+decode efficiency.
+- Target workload: generic quantized LLMs.
+- Primary subsystem: Datapath + memory scheduling.
+- Tactic: table-lookup ternary matmul and URAM scheduling.
+- Resource assumptions: edge FPGA (unspecified single-device).
+- Equivalence strategy: latency/throughput claims; no explicit open stack in registry.
+- Scalability: potentially strong if scheduling generalized.
+- OSS viability: No.
+- Kintex-480T: Low-Medium.
+- Verify: table quantization accuracy envelope under larger prompts.
+
+** ID 24: LUT-LLM (arXiv:2511.06174)
+Status: S
+- Problem: memory-computation trade-off using LUT-heavy design.
+- Target workload: Qwen3-1.7B.
+- Primary subsystem: Compute architecture.
+- Tactic: vector quantization + LUT memory computation.
+- Resource assumptions: AMD V80.
+- Equivalence strategy: hardware behavior not yet connected here to reproducibility stack.
+- Scalability: model size modestly above small model scale.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: LUT indexing policy impact on rare token cases.
+
+** ID 25: Efficient Kernel Mapping on CGLA (arXiv:2512.00335)
+Status: S
+- Problem: end-to-end system-level profiling on a new FPGA-like architecture.
+- Target workload: Qwen family.
+- Primary subsystem: System and kernel mapping methodology.
+- Tactic: task-agnostic kernel mapping, profiling-first method.
+- Resource assumptions: CGLA prototype.
+- Equivalence strategy: focus on end-to-end behavior metrics; hardware portability path unclear.
+- Scalability: system-level and likely board-limited.
+- OSS viability: No.
+- Kintex-480T: Low-Medium.
+- Verify: how host transfer overhead scales with batch/context changes.
+
+** ID 26: PD-Swap (arXiv:2512.11550)
+Status: S
+- Problem: prefill/decode pressure from single accelerator.
+- Target workload: generic quantized LLMs.
+- Primary subsystem: Runtime architecture + reconfiguration.
+- Tactic: dynamic partial reconfiguration between stages.
+- Resource assumptions: edge FPGA class.
+- Equivalence strategy: end-to-end runtime claims; implementation details not captured here.
+- Scalability: runtime flexibility, but reconfiguration cost risk.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: reconfiguration latency amortization model.
+
+** ID 27: FPGA Co-Design for Efficient N:M Sparse and Quantized Inference (arXiv:2512.24713)
+Status: S
+- Problem: sparse/quantized LLM co-design.
+- Target workload: LLaMA-7B workflow.
+- Primary subsystem: Co-design methodology.
+- Tactic: N:M sparse + 4-bit quantization flow.
+- Resource assumptions: custom systolic-style FPGA.
+- Equivalence strategy: marked unreliable; withdrawn.
+- Scalability: not trusted until revised.
+- OSS viability: No.
+- Kintex-480T: Low.
+- Verify: discard from quantitative baselines; keep only as cautionary design note.
+
+** ID 28: Towards Autonomous Accelerator Design with SECDA (arXiv:2606.11117)
+Status: P
+- Problem: extend SECDA-DSE evaluation from simulation to generated real accelerators with autonomous search.
+- Target workload: three kernels (element-wise vector multiplication, 2D convolution, matrix transpose) and cross-kernel adaptation behavior.
+- Primary subsystem: DSE + compiler/execution loop.
+- Tactic: LLM-guided generation with RAG and CoT, constrained by SECDA templates, then simulation and FPGA execution feedback.
+- Resource assumptions: Xilinx Zynq-7000 FPGA platform, Vivado HLS 2019.2, SECDA/SECDA-TFLite tooling.
+- Equivalence strategy: generated designs are element-wise compared against CPU software references during validation.
+- Scalability: validates multiple kernel families, but with small workload set and single-platform scope.
+- OSS viability: Low in this repo (no source links confirmed in survey set).
+- Kintex-480T: Low (tooling/path transfer not demonstrated in registry).
+- Verify: assess if the model-context-protocol workflow and prompt format transfer to Kintex-480T-centered toolchains.
+- Evidence sources: Abstract + Fig. 1, Fig. 2, Table I/II, Sec. IV (evaluation workflow and hardware validation).
+
+* Notes
+- This file is intentionally conservative: many cards use "verify" steps because direct reproducibility details are not fully in the registry table.
+- Next step is to attach a paper-specific section for each ID with extracted assertions from the PDF (accuracy, latency, power, and toolchain details) so the scoring becomes operational.

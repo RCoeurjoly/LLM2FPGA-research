@@ -1,0 +1,100 @@
+# LLM2FPGA Systems Engineering View
+
+This file is a reusable scaffold for reasoning about LLM inference on FPGA at a system level.
+It is intentionally practical: what parts of the stack are controlled in hardware, software, and methodology.
+
+To reduce speculation, this map is evidence-scoped:
+- *S* = captured from the survey registry only.
+- *P* = verified directly from a downloaded PDF.
+- *U* = unknown / unverified.
+
+Current entries are marked as provisional (*S*) until the paper is deeply read and upgraded.
+
+* 1) End-to-end inference stack
+
+1. **Model semantics contract**
+   - Input artifact: PyTorch model and target behavior (equivalence target).
+   - Required: same user-visible output behavior (or bounded approximation) for the same input.
+   - Core transforms: quantization, pruning, operator decomposition.
+
+2. **Compilation and scheduling layer**
+   - Graph lowering: PyTorch/ONNX/MLIR/Tensor DSL → compiler IR.
+   - Mapping decisions: dataflow, kernel tiling, pipelining, parallelism topology.
+   - Control decisions: prefill schedule, decode schedule, batching policy.
+
+3. **Hardware architecture layer**
+   - Compute engines: matmul/attention/MLP kernels, lookup-based paths, overlay fabric.
+   - Memory system: on-chip SRAM/BRAM/URAM/regs plus off-chip DDR/HBM.
+   - Fabric interfaces: AXI, host command channel, DMA.
+   - Reconfiguration paths: static bitstreams or DPR partitions.
+
+4. **Runtime layer**
+   - Host/board orchestration: weights load, KV state management, stream setup.
+   - Performance policy: latency-vs-throughput scheduling, batching, clock/power adaptation.
+   - Error handling and restart strategy.
+
+5. **Validation and systems QA**
+   - Golden comparison against reference inference.
+   - Layer-level and end-to-end accuracy checks (top-k output, perplexity, tokens/sec, latency).
+   - Timing + resource closure + power checks.
+
+* 2) Decision axes for this repo
+
+When comparing papers, use these axes in a fixed order:
+
+- **Functional equivalence**: Can it reproduce CPU/PyTorch behavior?
+- **Model expressiveness**: Which op classes are supported?
+- **Model size support**: What parameter/sequence-size envelope is feasible?
+- **Compute efficiency**: Throughput/latency improvements and bottleneck behavior.
+- **Memory system realism**: Is off-chip bandwidth / host transfer modeled honestly?
+- **Toolchain openness**: Does implementation depend on proprietary synthesis/placement?
+- **Portability**: Can flow move across FPGA families/boards?
+- **Reproducibility**: Are code, settings, and versions accessible and runnable?
+
+* 3) Research-to-implementation map (current papers)
+
+This map groups each paper into the dominant subsystem it most contributes to, using only data already in the surveys.
+
+| ID | Paper                                             | Dominant subsystem contribution                                   | Primary compute model                             | Memory pattern emphasis                         | OSS status              |
+|----+---------------------------------------------------+-------------------------------------------------------------------+---------------------------------------------------+-------------------------------------------------+-------------------------|
+|  1 | TeLLMe                                            | Kernel specialization (inference flow + bit-specific arithmetic)  | custom matmul-like primitives + decoding engine   | on-device KV/cache focus                        | No                      |
+|  2 | FPGA-Based Tiled MatMul on KV260                  | Kernel-level matrix optimization (QKV)                            | HLS tiled matmul in C++                           | board-level DDR-like memory path                | Partial                 |
+|  3 | TerEffic                                          | Architecture-class system design choice (matmul-free)             | custom ternary + elementwise ops                  | on-chip/HBM variants                            | No                      |
+|  4 | MEADOW                                            | End-to-end RTL accelerator for LLMs                               | TPHS + dataflow transformer blocks                | BRAM-centric + board-level memory pipeline      | No                      |
+|  5 | FlightLLM                                         | Full-stack end-to-end inference pipeline                          | sparse-sparse/sparse-dense tensor operators       | HBM/DDR split-aware                             | No                      |
+|  6 | SECDA-LLM                                         | Model/hardware workflow integration                               | matmul + speculative and BFP-aware blocks         | board RAM + CPU/FPGA flow                       | No                      |
+|  7 | MatMul-free LM                                    | Novel operator replacement strategy                               | matmul-free inference graph                       | aggressive SRAM/DRAM reduction claims           | No                      |
+|  8 | LoopLynx                                          | Multi-FPGA and spatial-temporal dataflow method                   | multi-kernel transformer schedule                 | explicit HBM/fabric communication               | Partial                 |
+|  9 | MASE                                              | RTL architecture for speculative decode                           | GPT-style transformer kernels                     | KV cache + task-level scheduling                | Yes (RTL)               |
+| 10 | On-Device Qwen2.5                                 | Quantized end-to-end inference strategy                           | AWQ quantized matmul + MAC pipeline               | hybrid CPU+FPGA data path                       | No                      |
+| 11 | HLSTransform                                      | End-to-end HLS flow for LLM layers                                | full transformer block stack                      | external memory movement + KV flow              | Partial                 |
+| 12 | Spatial acceleration                              | Dataflow pattern synthesis and mapping templates                  | HLS kernels (BERT/GPT2 ops)                       | streaming FIFOs + HBM-aware flows               | Partial                 |
+| 13 | AccLLM                                            | End-to-end system decomposition                                   | sparse matmul + custom interconnect               | multi-FPGA communication                        | No                      |
+| 14 | HLS with MLIR/CIRCT                               | Compiler method to bridge MLIR to HLS-ready RTL                   | operator lowerings for hardware generation        | generic                                         | Open compiler framework |
+| 15 | StreamTensor                                      | Compiler-style streaming IR/dataflow for LLMs                     | iterative tensor type + automatic fusion          | DRAM/FIFO sizing + DMA                          | No code available       |
+| 16 | FAST-Prefill                                      | Sparse-attention prefill optimization                             | sparse attention + dual-tier cache                | long-context memory planning                    | No                      |
+| 17 | FlexLLM                                           | Composable HLS library for hybrid memory-aware accelerator design | hierarchical memory transformer                   | streaming + long-context handling               | No                      |
+| 18 | SkipOPU                                           | Dynamic compute routing at runtime                                | overlay processor and token/layer gating          | on-chip KV history buffer + routing state       | No                      |
+| 19 | Memory Pipeline Disaggregation                    | Heterogeneous decomposition between GPU and FPGA                  | memory-bounded stages separated from compute      | host/accelerator transfer dominated analysis    | No                      |
+| 20 | LLM-Driven DSE of FPGA-based Accelerators         | Automated DSE in SECDA-style loop                                 | generic accelerator skeleton generation           | tuning-oriented; synthesis-exploration oriented | No                      |
+| 21 | XtraMAC                                           | Mixed-precision MAC microarchitecture                             | compute primitive design + integration path       | MAC datapath utilization focus                  | Yes                     |
+| 22 | SpecMamba                                         | Accelerator for Mamba kernels with speculative execution          | RNN-style selective compute + speculative control | on-chip buffer + reduction tree                 | No                      |
+| 23 | TeLLMe v2                                         | Table-lookup ternary matmul + URAM scheduling                     | low-bit quantized matmul scheduling               | decode/prefill hybrid flow                      | No                      |
+| 24 | LUT-LLM                                           | LUT-based memory-centric compute for inference                    | lookup/dict-driven quantized ops                  | memory-computation co-placement                 | No                      |
+| 25 | CGLA LLM acceleration                             | End-to-end FPGA-oriented profiling and mapping                    | task-agnostic kernel mapping                      | host transfer and platform bottleneck focus     | No                      |
+| 26 | PD-Swap                                           | DPR-based prefill/decode partitioning                             | modular pipeline with reconfigurable phases       | edge-partitioned runtime behavior               | No                      |
+| 27 | FPGA Co-Design for N:M Sparse/Quantized Inference | Sparse quantization + hardware co-design methodology              | co-optimized sparse matrix flow                   | workflow mismatch; withdrawn                    | Withdrawn               |
+| 28 | Towards Autonomous Accelerator Design with SECDA  | LLM-guided DSE in SECDA ecosystem                                 | generated SECDA-compliant designs                 | synthesis + execution loops                     | No                      |
+
+* 4) Scoring rubric (first pass)
+
+Use a 1–3 score per axis (1=weak, 3=strong), with a note and evidence source.
+
+| Axis                  | 1                          | 2                                 | 3                                              |
+|-----------------------+----------------------------+-----------------------------------+------------------------------------------------|
+| Functional confidence | no clear equivalence path  | partial/clear in selected kernels | explicit equivalence strategy                  |
+| Hardware openness     | proprietary stack only     | mixed OSS + proprietary           | OSS-first path                                 |
+| Resource portability  | board-specific only        | modest retargeting                | architecture described at reusable granularity |
+| Scalability model     | single fixed configuration | fixed family + tuning knobs       | clearly parameterized design space             |
+
+Record one row per paper in the question log when deep-reading.

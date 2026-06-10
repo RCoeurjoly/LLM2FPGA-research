@@ -13,6 +13,10 @@ No RTL/tool execution is required in this branch.
 * Study artifacts
 - [[file:learning/acronyms-and-definitions.org][acronyms-and-definitions.org]]
 - [[file:notes/questions.org][questions.org]]
+- [[file:learning/system-view.org][system-view.org]]
+- [[file:learning/design-space-template.org][design-space-template.org]]
+- [[file:surveys/1b-keyword-expansion.org][1b-keyword-expansion.org]]
+- Evidence discipline and claim status are tracked in [[file:notes/questions.org][questions.org]].
 
 * Papers
 - [[file:papers][papers/]] contains local PDF copies of papers in the research registry.

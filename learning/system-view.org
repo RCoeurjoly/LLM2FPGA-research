@@ -51,6 +51,20 @@ When comparing papers, use these axes in a fixed order:
 - **Portability**: Can flow move across FPGA families/boards?
 - **Reproducibility**: Are code, settings, and versions accessible and runnable?
 
+* 2b) Toolchain integration contract
+
+For each design point, keep a deterministic chain:
+
+1. `model` (PyTorch/ONNX/MLIR graph signature)
+2. `solve` (CP-SAT / MiniZinc variables + constraints)
+3. `synth` (yosys logic + resource/timing pass)
+4. `route` (nextpnr-xilinx timing and congestion reality)
+5. `hil` (PCIe/DDR3 execution and correctness gates)
+6. `evidence` (machine-readable record with versions + metrics)
+
+If any stage is proprietary or non-scriptable, mark the whole chain as not
+actionable for this repo until replaced by an OSS equivalent.
+
 * 3) Research-to-implementation map (current papers)
 
 This map groups each paper into the dominant subsystem it most contributes to, using only data already in the surveys.

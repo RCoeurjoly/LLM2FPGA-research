@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/llm2fpga/board_profile.schema.json",
+  "title": "Board Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "board_id",
+    "fpga_part",
+    "resources",
+    "clock_mhz",
+    "memory_interfaces",
+    "created_utc"
+  ],
+  "properties": {
+    "board_id": {
+      "type": "string"
+    },
+    "fpga_part": {
+      "type": "string"
+    },
+    "package": {
+      "type": "string"
+    },
+    "speed_grade": {
+      "type": "string"
+    },
+    "resources": {
+      "type": "object",
+      "required": ["lut", "ff", "dsp", "bram_18k", "uram_288k", "iob"],
+      "properties": {
+        "lut": { "type": "integer", "minimum": 1 },
+        "ff": { "type": "integer", "minimum": 1 },
+        "dsp": { "type": "integer", "minimum": 0 },
+        "bram_18k": { "type": "integer", "minimum": 0 },
+        "uram_288k": { "type": "integer", "minimum": 0 },
+        "iob": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "clock_mhz": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "memory_interfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "bus_width_bits", "bandwidth_bytes_per_s"],
+        "properties": {
+          "name": { "type": "string" },
+          "bus_width_bits": { "type": "integer", "minimum": 1 },
+          "bandwidth_bytes_per_s": { "type": "number", "minimum": 0 },
+          "measured_efficiency": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "pcie": {
+      "type": ["object", "null"],
+      "properties": {
+        "gen": { "type": "string" },
+        "lanes": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "max_payload_mtu": { "type": "integer", "minimum": 128 }
+      },
+      "additionalProperties": false
+    },
+    "driver_stack": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "notes": {
+      "type": ["string", "null"]
+    },
+    "created_utc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "experiment_id": "exp-20260610-a-001",
+  "config_id": "cfg-tn-0001",
+  "model_id": "tinystories-1m",
+  "board_id": "YPCB-00338-1P1",
+  "phase": "A_linear_kernel",
+  "created_utc": "2026-06-10T00:00:00Z",
+  "toolchain": {
+    "solver": "ortools",
+    "synth": "yosys-nextpnr",
+    "pnr": "nextpnr-xilinx",
+    "hil": "custom_pcie_hil.py"
+  },
+  "status": "build_fail",
+  "synth_result": {
+    "route_pass": false,
+    "timing_pass": false,
+    "wns_ns": -4.1,
+    "fmax_mhz": 68.0,
+    "resources": {
+      "lut": 103200,
+      "ff": 142000,
+      "dsp": 620,
+      "bram": 190,
+      "uram": 0
+    }
+  },
+  "hil_result": null,
+  "artifacts": {
+    "board_profile": "learning/tooling/contracts/board_profile_example.json",
+    "config_path": "notes/exp-20260610-a-001/config.json",
+    "synth_log": "notes/exp-20260610-a-001/synth.log",
+    "pnr_log": "notes/exp-20260610-a-001/pnr.log",
+    "hil_log": "notes/exp-20260610-a-001/hil.log",
+    "notes": "Failed in timing; added candidate-specific no-gate rule in next iteration."
+  },
+  "rerun_plan": "Add one extra pipeline stage and lower lanes to recover timing."
+}

@@ -16,6 +16,7 @@ No RTL/tool execution is required in this branch.
 - [[file:learning/system-view.org][system-view.org]]
 - [[file:learning/design-space-template.org][design-space-template.org]]
 - [[file:surveys/1b-keyword-expansion.org][1b-keyword-expansion.org]]
+- [[file:learning/tooling/README.org][learning/tooling/README.org]]
 - Evidence discipline and claim status are tracked in [[file:notes/questions.org][questions.org]].
 
 * Papers

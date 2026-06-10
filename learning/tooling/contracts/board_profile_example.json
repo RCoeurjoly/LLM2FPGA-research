@@ -1,0 +1,35 @@
+{
+  "board_id": "YPCB-00338-1P1",
+  "fpga_part": "xc7k480t",
+  "package": "ffg676",
+  "speed_grade": "-2",
+  "resources": {
+    "lut": 120000,
+    "ff": 240000,
+    "dsp": 768,
+    "bram_18k": 288,
+    "uram_288k": 0,
+    "iob": 400
+  },
+  "clock_mhz": 100.0,
+  "memory_interfaces": [
+    {
+      "name": "ddr3",
+      "bus_width_bits": 64,
+      "bandwidth_bytes_per_s": 1460000000,
+      "measured_efficiency": 0.85
+    }
+  ],
+  "pcie": {
+    "gen": "Gen3",
+    "lanes": 8,
+    "max_payload_mtu": 256
+  },
+  "driver_stack": [
+    "openFPGALoader",
+    "custom_pcie_driver",
+    "custom_ddr3_driver"
+  ],
+  "notes": "Initial profile for Kintex-7 class planning; refine with measured board characterization.",
+  "created_utc": "2026-06-10T00:00:00Z"
+}

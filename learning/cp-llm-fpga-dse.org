@@ -1,0 +1,307 @@
+# Constraint Programming for LLM Inference on FPGA
+
+#+TITLE: CP for LLM Inference on FPGA (LLM2FPGA DSE)
+#+DATE: 2026-06-10
+
+* Why this file exists
+
+Use this as the working design record for a first practical CP-guided design-space exploration (DSE) flow for LLM inference on FPGA, focused on our open-source flow (yosys / nextpnr / open build tooling) and a fixed board target (Kintex-7 480T class).
+
+The intent is:
+
+- CP acts as a *feasibility and candidate-pruning* engine.
+- Fast models/estimators rank candidates.
+- Yosys/nextpnr/HIL provide *truth* (resource, timing, performance, correctness).
+- Results are fed back into CP as learned constraints and priors.
+
+This intentionally avoids replacing placement/routing with pure CP for whole designs.
+
+* Core scope decision
+
+| Layer | Role of CP | Keep/avoid |
+|-------+------------+------------|
+| PyTorch operator graph mapping | Use CP constraints | Keep |
+| Quantization and tiling choices | Use CP variables | Keep |
+| Dataflow / scheduling / memory placement | Use CP constraints | Keep |
+| End-to-end RTL correctness pipeline | Use CP + test harness | Keep |
+| Full physical place-and-route | Avoid as primary solver | Avoid initially |
+| Floorplanning / timing-hint extraction | Use CP on reduced state | Optional later |
+
+Reason: full P&R scales poorly for CP, but floorplanning and timing-hint constraints are tractable with board-specific feedback.
+
+* Problem statement (as an optimization)
+
+- Given:
+  - a fixed board/FPGAs + measured memory/clock/bandwidth envelope,
+  - one operator graph from a small LLM/LLM-like model,
+  - allowed implementation options (quantization, tiling, operator variants, scheduling),
+  - resource/timing/correctness constraints,
+- choose mappings that maximize useful objective(s) while staying implementable.
+
+Primary practical objective:
+- maximize throughput proxy (tokens/s or cycle/token) under constraints.
+
+Secondary objectives:
+- maximize timing robustness / synthesis pass probability,
+- minimize compile cost,
+- minimize resource footprint for near-optimal throughput.
+
+* CP / MILP model sketch
+
+** Decision variables (finite domain)
+
+#+begin_src text
+g              model_group            ∈ {tiny_stories_1M, tiny_stories_3M, tiny_stories_8M}
+op_id          operator              ∈ {linear, ffn, attention_proj, kv_update, softmax, norm}
+w_bits         ∈ {2,3,4,8}
+a_bits         ∈ {4,8,16}
+kv_bits        ∈ {2,4,8,16}
+tile_m         ∈ {16,32,64,128,256}
+tile_n         ∈ {16,32,64,128,256}
+tile_k         ∈ {16,32,64,128,256}
+lanes          ∈ {1,2,4,8,16,32}
+num_heads_par  ∈ {1,2,4,8,16}
+acc_bits       ∈ {16,24,32}
+pipeline_ii    ∈ {1,2,4}
+dsp_chain      ∈ {0,1}
+lutmux         ∈ {0,1}   ; compute style toggle
+use_dsp_mul    ∈ {0,1}
+use_lut_mul    ∈ {0,1}
+use_sparse     ∈ {0,1}
+sparse_group   ∈ {0,2,4,8}
+prefill_only   ∈ {0,1}
+decode_only    ∈ {0,1}
+bucket         ∈ {128,256,512,1024,2048}
+batch          ∈ {1,2,4}
+kv_in_bram     ∈ {0,1}
+weights_in_bram∈ {0,1}
+weights_in_uram∈ {0,1}
+ext_mem        ∈ {0,1}   ; weights/kvcache in DDR when set
+seed_budget    ∈ Z+      ; max build seeds to test
+#+end_src
+
+Derived and helper variables:
+
+- per-layer/segment flags: fused_ffn, fused_attention, fused_mlp_block
+- runtime_mode ∈ {single_clock, dual_clock}
+- placement_region tags (for optional floorplanning step): {DDR, DSP_ARRAY, BRAM_BANK, DMA_ZONE}
+
+** Hard constraints
+
+1) Resource budgets (conservative estimates)
+
+- LUT(cfg) ≤ LUTmax
+- FF(cfg) ≤ FFmax
+- DSP(cfg) ≤ DSPmax
+- BRAM(cfg) ≤ BRAMmax
+- URAM(cfg) ≤ URAMmax
+- WNS_pred(cfg) ≥ WNS_min (or timing-pass proxy if available)
+
+2) Functional arithmetic constraints
+
+- hidden_dim % tile_k = 0
+- hidden_dim % tile_n = 0
+- num_heads % num_heads_par = 0
+- acc_bits ≥ ceil(log2(tile_k)) + w_bits + a_bits - 1
+
+3) Memory/ bandwidth constraints
+
+- bytes(weights) + bytes(act_buf) + bytes(kv) + bytes(intermediate) ≤ memory_budget
+- DDR_bw_req(cfg) ≤ DDR_bw_meas * safety_margin
+- if ext_mem=1 then (weights_in_bram, weights_in_uram) = 0
+- if kv_in_bram=1 then kv_size_model ≤ bram_kv_cap
+
+4) Scheduling/latency constraints
+
+- stage_cycles(cfg, op_id) formula-compatible with selected tile sizes
+- total_cycles_prefill ≤ prefill_budget
+- total_cycles_decode ≤ decode_budget
+- II(cfg) ≥ pipeline_ii
+- if use_sparse=0 then sparse_group must be 0
+
+5) Compilation/runtime practical constraints
+
+- if use_dsp_mul=0 and use_lut_mul=1 then LUT_budget headroom must hold
+- use_dsp_mul + use_lut_mul ∈ {1,2}   ; allow hybrid if supported by codegen
+- build_seed_count(cfg) ≤ seed_budget
+- max_total_variants in one batch ≤ experiment_budget
+
+6) Correctness constraints (post-build check, not a pre-build inequality)
+
+- CP includes a conservative domain guard:
+  - quantization choices must be supported by conversion tool and reference testbench
+  - operators requiring unsupported kernel variants are disallowed
+- Accuracy/faithfulness validated after synthesis/HIL (see loop below)
+
+** Soft constraints / preferences
+
+Use objective weights or soft penalties for:
+- prefer lower compile complexity:
+  - penalize very large tile_k/tile_n combinations
+- prefer deterministic pipelines:
+  - penalize mixed variable-precision per-layer choices unless justified by quality gate
+- prefer simple storage layouts:
+  - penalize DDR-only placement unless required
+
+* Solver architecture
+
+** Loop topology
+
+1. Parse model + supported operator set
+2. Expand candidate variables from model graph + hardware profile
+3. Solve CP-MIP feasibility problem under hard constraints
+4. Rank top-K feasible configurations by cheap estimator score
+5. Run synthesis/P&R for top candidates (multi-seed)
+6. Measure:
+   - pass/fail, timing, resources, II/Fmax proxy, tokens/s proxy, correctness
+7. Store in experiment DB
+8. Add learned constraints / update surrogate and rerun
+
+This is a closed-loop search:
+
+- CP gives "likely feasible and useful" candidates
+- HIL says if timing/RTL reality contradicts estimator
+- Learned rules improve next CP iteration
+
+** Suggested tools
+
+- Model frontend: PyTorch graph capture (`torch` / `torch.ao`), optional torch-mlir
+- CP engine: OR-Tools CP-SAT first
+- Secondary solver lane: MiniZinc + CP-SAT-compatible formulation for model sanity
+- Optional second stage: Z3/optimize for small symbolic checks and boundary debugging
+- DB: SQLite or DuckDB for experiment provenance
+- Estimator: local python module with analytic surrogates
+- Build runners: existing make/flow scripts calling yosys + nextpnr-xilinx
+- Reporting: JSONL + parquet + org tables for papers/design notes
+
+* Minimal implementation scope (recommended)
+
+Step 1 (lowest risk): one operator family
+- Quantized Linear layer
+- Variables: w_bits, a_bits, tile_k, lanes, acc_bits, pipelining, memory placement
+- Constraints from estimated resources + DDR and BRAM
+- Objective: cycles_per_token on decode-oriented micro-benchmark
+
+Step 2:
+- Add MLP/FFN block
+- Add memory hierarchy and kernel selection choices
+
+Step 3:
+- Add attention block and KV-cache decisions
+
+Step 4:
+- Single transformer block validation
+- Then TinyStories-1M full forward and decode loop
+
+Step 5:
+- Extend to 3M, 8M, then generic small PyTorch models
+
+* Data artifacts (implemented)
+
+** 1) board_profile.json
+
+Use [[file:tooling/contracts/board_profile_example.json][tooling/contracts/board_profile_example.json]] as the seed board profile.
+
+Validation path:
+- validate this schema against [[file:tooling/contracts/board_profile.schema.json][tooling/contracts/board_profile.schema.json]]
+
+** 2) config schema
+
+Use [[file:tooling/contracts/config_run.schema.json][tooling/contracts/config_run.schema.json]]
+
+- Example: [[file:tooling/contracts/config_run_example.json][tooling/contracts/config_run_example.json]]
+
+Canonical keys for solver outputs:
+
+- config_id
+- model_id
+- operator_scope
+- params (JSON map)
+- objective / weights
+- status (candidate/evaluated/pass/fail)
+- constraints_used (array)
+- seed
+- rerun_plan
+- experiment_id reference
+
+** 3) experiment record
+
+Use [[file:tooling/contracts/experiment_record.schema.json][tooling/contracts/experiment_record.schema.json]] for closed-loop records.
+
+Example record:
+- [[file:tooling/contracts/experiment_record.example.json][tooling/contracts/experiment_record.example.json]]
+
+Database idea (optional but recommended):
+- config_runs(config_id, board_id, timestamp, status)
+- synth_outcomes(config_id, seed, route_pass, timing_pass, resources_json, fmax, wns_ns)
+- hil_outcomes(config_id, max_abs_error, top1_match, token_match, cycles, tok_per_s, energy_uj)
+- learned_clauses(config_id, clause_json, source=timing|res|error|compile)
+
+* Constraint updates from measured outcomes
+
+When a config consistently fails timing:
+- add nogood clauses:
+  - tile_k >= threshold ∧ lanes > threshold -> avoid
+  - chain_len > N ∧ target_clock > fclk -> require extra pipeline stage
+- relax resource-based optimism:
+  - replace underestimation factors with measured multipliers for similar region
+
+When hardware fails while estimate passed:
+- add minimum margins to II/bandwidth/accumulator constraints
+- tighten ext_mem usage for failing memory placement patterns
+
+When a config passes and performs well:
+- record as seed set for local neighborhood search
+- widen local tile/lane exploration around it
+
+* Risk register
+
+- Resource model mismatch: underestimated BRAM/DSP from RTL variants.
+- Timing closure noise: seed-dependent routing can hide feasibility.
+- Surrogate error: analytic model may rank wrong near-boundary points.
+- Build variance: external tool versions and flags can shift pass/fail boundary.
+- Correctness drift: fixed-point saturation and ordering effects across kernels.
+
+Mitigation:
+- keep CP constraints conservative,
+- keep all post-build checks strict,
+- track per-tool versions in DB metadata,
+- gate objective progression on correctness + timing passes.
+
+* Success criteria (first 6 weeks)
+
+1. >100 feasible candidates generated by CP without full synthesis
+2. At least 10% fewer synthesis attempts needed to reach top candidate than naive grid
+3. Reproducible pipeline:
+   - same seed list → same top-20 candidates
+4. One config that:
+   - passes timing in >2/3 seeds,
+   - preserves baseline correctness checks,
+   - beats current baseline tokens/s at matched resource budget
+
+* Open questions
+
+- Should objective be lexicographic (feasible → perf → robustness → resources)
+  or weighted sum?
+- Do we optimize on measured tokens/s only, or also estimate on a model-agnostic benchmark?
+- Is correctness gate:
+  - top-1 agreement OR token-level agreement, or both?
+- How aggressive should cross-layer shared quantization be (uniform per model vs per-layer)?
+- How strict should timing robustness be in first loop: pass >= 2/3 seeds or single best seed?
+
+* Reading / anchors from current repo
+
+- `surveys/1a-paper-registry.org`: existing paper corpus and reproducibility tags
+- `learning/design-space-template.org`: per-paper design-space comparison structure
+- `learning/system-view.org`: system-level view with open-source constraints
+- `learning/acronyms-and-definitions.org`: definitions for consistent notes
+
+* First concrete tasks (this week)
+
+1. Add `surveys/1a-paper-registry.org` candidate status for CP-related papers:
+   - 2606.11117 (SECDA-DSE) as reference for DSE loop shape
+   - 2501.09242 as method anchor
+2. Add board-profile stub + parser in `boards/` (new directory if absent).
+3. Add minimal CP schema file + solver stub script (skeleton only).
+4. Add experiment DB schema SQL and one tiny test dataset (a single quantized Linear candidate).
+5. Produce first `cp_candidate_report.org`: top-20 feasible configs + estimated latency ranking.

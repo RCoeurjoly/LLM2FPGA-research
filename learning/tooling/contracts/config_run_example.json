@@ -1,0 +1,47 @@
+{
+  "config_id": "cfg-tn-0001",
+  "model_id": "tinystories-1m",
+  "operator_scope": "linear",
+  "params": {
+    "w_bits": 4,
+    "a_bits": 8,
+    "tile_k": 64,
+    "tile_n": 64,
+    "tile_m": 32,
+    "lanes": 4,
+    "acc_bits": 24,
+    "pipeline_ii": 2,
+    "use_dsp_mul": true,
+    "weights_in_bram": false,
+    "ext_mem": true
+  },
+  "status": "candidate",
+  "objectives": {
+    "primary": "throughput_tokens_per_sec",
+    "secondary": ["timing_margin", "resource_headroom", "compile_stability"],
+    "weights": {
+      "throughput_tokens_per_sec": 1.0,
+      "timing_margin": 0.2,
+      "resource_headroom": 0.1,
+      "compile_stability": 0.1
+    }
+  },
+  "constraints": [
+    "fit-on-device",
+    "decode_latency_budget",
+    "ddr_bw_headroom>=0.85"
+  ],
+  "solver": "ortools",
+  "seed": 7,
+  "estimates": {
+    "tokens_per_sec_est": 7.8,
+    "latency_ms_est": 125.0,
+    "ff_est": 0.52,
+    "lut_est": 0.43,
+    "dsp_est": 0.36,
+    "bram_est": 0.48,
+    "mem_bw_est": 0.62
+  },
+  "created_utc": "2026-06-10T00:00:00Z",
+  "notes": "First linear-kernel smoke candidate for tiny model scaling path."
+}

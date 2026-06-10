@@ -48,3 +48,8 @@
 | PYNQ | Python + FPGA framework | Python + notebook framework for board-level prototyping on some boards |
 | HLS C++ | HLS-targetable C++ subset | Common source representation in many surveyed papers |
 | PR | Partial Reconfiguration | Runtime reconfiguration of part of FPGA fabric |
+| OR-Tools | Operations Research Tools | Google optimization toolkit including CP-SAT/MIP solvers |
+| CP-SAT | Constraint Programming Satisfiability | OR-Tools integer and boolean solver for discrete design-space search |
+| MiniZinc | Constraint modeling language | Declarative model language with many solver backends, useful for model cross-checking |
+| SMT | Satisfiability Modulo Theories | Logic-based solving style useful for proving invariants and bounds |
+| DB | Database | Persistent experiment logging for repeatable DSE decisions |

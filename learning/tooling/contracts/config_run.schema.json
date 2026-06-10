@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/llm2fpga/config_run.schema.json",
+  "title": "Config Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "config_id",
+    "model_id",
+    "operator_scope",
+    "params",
+    "status",
+    "objectives",
+    "constraints",
+    "created_utc"
+  ],
+  "properties": {
+    "config_id": { "type": "string" },
+    "model_id": { "type": "string" },
+    "operator_scope": {
+      "type": "string",
+      "enum": ["linear", "ffn", "attention", "kv_cache", "transformer_block"]
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "status": {
+      "type": "string",
+      "enum": ["candidate", "evaluated", "pass", "fail", "discarded"]
+    },
+    "objectives": {
+      "type": "object",
+      "required": ["primary", "secondary", "weights"],
+      "properties": {
+        "primary": { "type": "string" },
+        "secondary": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "weights": {
+          "type": "object",
+          "additionalProperties": { "type": "number", "minimum": 0 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "constraints": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "solver": {
+      "type": "string",
+      "enum": ["ortools", "minizinc", "z3", "hybrid"]
+    },
+    "seed": { "type": "integer", "minimum": 0 },
+    "estimates": {
+      "type": "object",
+      "properties": {
+        "tokens_per_sec_est": { "type": "number", "minimum": 0 },
+        "latency_ms_est": { "type": "number", "minimum": 0 },
+        "ff_est": { "type": "number", "minimum": 0 },
+        "lut_est": { "type": "number", "minimum": 0 },
+        "dsp_est": { "type": "number", "minimum": 0 },
+        "bram_est": { "type": "number", "minimum": 0 },
+        "mem_bw_est": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "created_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": { "type": ["string", "null"] }
+  }
+}

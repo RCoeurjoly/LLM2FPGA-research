@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/llm2fpga/experiment_record.schema.json",
+  "title": "Experiment Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "experiment_id",
+    "config_id",
+    "model_id",
+    "board_id",
+    "created_utc",
+    "phase",
+    "toolchain",
+    "status",
+    "artifacts"
+  ],
+  "properties": {
+    "experiment_id": { "type": "string" },
+    "config_id": { "type": "string" },
+    "model_id": {
+      "type": "string",
+      "description": "Canonical model id or artifact hash"
+    },
+    "board_id": { "type": "string" },
+    "phase": {
+      "type": "string",
+      "enum": ["A_linear_kernel", "B_dual_backend", "C_solver_parity", "D_hil_closed_loop", "archive"]
+    },
+    "created_utc": { "type": "string", "format": "date-time" },
+    "toolchain": {
+      "type": "object",
+      "required": ["solver", "synth", "pnr"],
+      "properties": {
+        "solver": {
+          "type": "string",
+          "enum": ["ortools", "minizinc", "z3", "hybrid"]
+        },
+        "synth": { "type": "string" },
+        "pnr": { "type": "string" },
+        "hil": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "fail", "build_fail", "timing_fail", "mismatch", "inconclusive"]
+    },
+    "synth_result": {
+      "type": ["object", "null"],
+      "properties": {
+        "route_pass": { "type": "boolean" },
+        "timing_pass": { "type": "boolean" },
+        "wns_ns": { "type": "number" },
+        "fmax_mhz": { "type": "number" },
+        "resources": {
+          "type": "object",
+          "properties": {
+            "lut": { "type": "number" },
+            "ff": { "type": "number" },
+            "dsp": { "type": "number" },
+            "bram": { "type": "number" },
+            "uram": { "type": "number" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "hil_result": {
+      "type": ["object", "null"],
+      "properties": {
+        "correct": { "type": "boolean" },
+        "max_abs_error": { "type": "number" },
+        "token_match_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "latency_ms_per_token": { "type": "number", "minimum": 0 },
+        "throughput_toks_per_s": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "required": ["board_profile", "config_path"],
+      "properties": {
+        "board_profile": { "type": "string" },
+        "config_path": { "type": "string" },
+        "synth_log": { "type": "string" },
+        "pnr_log": { "type": "string" },
+        "hil_log": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "rerun_plan": {
+      "type": ["string", "null"],
+      "description": "Next action based on measured constraints"
+    }
+  }
+}

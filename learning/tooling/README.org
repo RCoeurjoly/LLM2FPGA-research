@@ -1,0 +1,70 @@
+# Open-Source Tooling Integration Scaffold
+
+#+TITLE: Open-Source Tooling Integration for LLM→FPGA DSE
+#+DATE: 2026-06-10
+
+This directory holds the practical execution scaffolding for the CP-guided DSE path:
+
+- PyTorch/MLIR/ONNX frontends
+- OR-Tools / MiniZinc optimization layers
+- OSS compile path (yosys + nextpnr-xilinx)
+- HIL validation loop and reproducible record keeping
+
+It is intentionally implementation-first for a learning repo so that every new
+idea is backed by a concrete, machine-readable experiment record.
+
+* Integration Topology
+
+#+begin_quote
+Choose one canonical path for every experiment: model → graph → optimization → synthesis/HIL →
+correctness gate → data record.
+#+end_quote
+
+| Layer | Tooling | Primary role | Output artifact | Why this matters |
+|-------+---------+--------------+-----------------|------------------|
+| Model capture | PyTorch + torch.ao quantization + torchscript | canonical graph extraction | `graph_signature.json` | fixed operator set and shapes for CP constraints |
+| MLIR bridge | torch-mlir, MLIR-Linalg, CIRCT | lowering and structural normalization | `mlir_module.mlir` | makes compiler-level assumptions explicit |
+| Solver | OR-Tools CP-SAT | fast feasible-space and ranking | `candidate_set.json` | handles discrete DSE with hard/soft constraints |
+| Solver mirror | MiniZinc | alternate declarative model | `candidate_set.mzn` (planned) | sanity-checks CP model behavior and infeasibility patterns |
+| RTL synthesis | yosys | logic elaboration and checks | `synth_log` + `resource_report.json` | open-source truth for logic/resource feasibility |
+| P&R | nextpnr-xilinx | placement/routing + timing estimate | `pnr_log` + `timing_report.json` | catches physical feasibility failures early |
+| Execution | PCIe + DDR3 test harness, FPGA bitstream | throughput/latency + correctness | `hil_outcomes.json` | closes the loop beyond RTL-only proxy |
+| Registry | SQLite/JSONL | experiment provenance | `experiment_runs` | prevents one-off untraceable experiments |
+
+* Actionable Contract
+
+All experiments in this directory must emit:
+
+- `model_signature`: model name, checkpoint hash, graph digest, quantization policy
+- `kernel_graph`: operator set with counts and tensor metadata
+- `board_profile`: board id + resource/timing/memory/bandwidth envelope
+- `solver_run`: CP variables, hard constraints, objective, seed, solver versions
+- `synth_result`: pass/fail + resources + timing outcomes
+- `hil_result`: token-level correctness, cycles/token, tok/s, energy
+- `rationale`: reason for promotion/rejection + next action
+
+* File Layout
+
+| File | Purpose |
+|------|---------|
+| [[file:contracts/board_profile.schema.json][board_profile.schema.json]] | JSON schema for board constraints and board-class assumptions |
+| [[file:contracts/board_profile_example.json][board_profile_example.json]] | concrete board profile skeleton for YPCB-00338-1P1 |
+| [[file:contracts/experiment_record.schema.json][experiment_record.schema.json]] | JSON schema for one full experiment record |
+| [[file:contracts/experiment_record.example.json][experiment_record.example.json]] | one complete trace example to copy |
+| [[file:contracts/config_run.schema.json][config_run.schema.json]] | schema for per-config candidate output (before synthesis) |
+| [[file:contracts/config_run_example.json][config_run_example.json]] | sample candidate row produced by CP |
+
+* Phase execution gates
+
+1. Phase A: Linear kernel-only CP candidates, closed under fit and bandwidth.
+2. Phase B: Dual pipeline test (yosys direct + MLIR/CIRCT-assisted path).
+3. Phase C: CP-SAT vs MiniZinc overlap/consistency check.
+4. Phase D: HIL gate and constraint learning from measured failures.
+
+* Evidence discipline
+
+- Each table or claim in the research notes should link to entries in these
+  contracts.
+- If a claim references a tool version, it is stored under `solver_run` or
+  `synth_result` and must be reproducible.
+- No "likely" claims for performance/correctness without concrete record file.

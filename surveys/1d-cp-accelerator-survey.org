@@ -1,0 +1,62 @@
+# Constraint Programming and FPGA Accelerator Design (Survey)
+
+* Scope and question
+
+User question: *what does research say about constraint programming for accelerator design, and are there papers about it?*
+
+This is a constraints-oriented view, with emphasis on:
+
+- HLS scheduling / binding / mapping,
+- resource assignment under timing/resource constraints,
+- and SAT/CP use for router/placement sub-problems.
+
+LLM-specific CP for FPGA inference is still sparse; most CP/ASP/SAT work is in
+general accelerator synthesis and CAD optimization.
+
+* Core findings
+
+1. The strongest CP literature is in *front-end synthesis* rather than final
+placement/routing:
+   - CP is well-established for scheduling, binding, assignment and mapping.
+   - Classic papers use JaCoP/CP-SAT and report strong optimality/near-optimality
+     on HLS benchmarks.
+2. Full placement/routing with pure CP is still rare as a production solution:
+   - SAT and CSP formulations are used for routing legality / unrouteability checks
+     or as accelerator subroutines, but whole P&R is usually too large for naive CP.
+3. Modern accelerator toolflows still trend toward mixed approaches:
+   - ILP / CP / MILP / heuristic + analytical models + physical feedback.
+4. For LLM inference specifically, currently most papers are LLM-focused but do not use CP for core mapping (they use automation and RL/LLM-guided heuristics instead).
+
+* Paper list (constraint-based, accelerator / CAD relevance)
+
+| ID | Paper | What it contributes | Solver style | Open link / artifact | Evidence quality |
+|---+-------+----------------------|--------------+---------------------+-----------------|
+| 1 | Constraints-driven scheduling and resource assignment (ACM TODAES 2003) | Core HLS scheduling/resource assignment with finite-domain CP, JaCoP; supports optimality on HLS scheduling benchmarks and good results on larger generated graphs | CP + JaCoP | DOI:10.1145/785411.785416 | high |
+| 2 | Global approach to assignment and scheduling of complex behaviors based on HCDG and CP (J. of Systems Architecture 2003) | CP modeling of HCDG scheduling, binding and register sharing for HLS conditional behaviors; supports conditional sharing/synthesis-style tradeoffs | CP + JaCoP | DOI:10.1016/S1383-7621(03)00075-4 | high |
+| 3 | A constraints programming approach to communication scheduling on SoPC architectures (FPL 2004) | CP for communication scheduling in SoPC architecture synthesis | CP (JaCoP-like) | conference reference | medium |
+| 4 | Constraint programming in embedded systems design: considered helpful (2019) | Practical survey of CP for scheduling/mapping in embedded systems; uses MiniZinc + JaCoP; discusses where CP helps and where search quality limits throughput | CP + MiniZinc + JaCoP | DOI:10.1016/j.micpro.2019.05.012 | high |
+| 5 | High-level synthesis of on-chip multiprocessor architectures based on ASP (JPDC 2018) | ASP-based system-level synthesis of multiprocessor architectures + scheduler under timing/resource constraints with optimality focus; FPGA selected as target due reconfiguration options | ASP + SAT-style search | DOI:10.1016/j.jpdc.2018.02.010 | high |
+| 6 | Satisfiability-based detailed FPGA routing (early 2000s, revised route-based variants) | SAT-formulated detailed FPGA routing, often with routing legality/existence and full-net routing constraints in constrained regions | SAT/CP-like | search-based SAT router papers (e.g., SAT-based detailed routing formulations) | medium |
+| 7 | Component based design using constraint programming for module placement on FPGAs (ReCoSoC 2013) | CP model for module placement in static and dynamic-reconfigurable FPGA contexts with configuration/communication constraints | CP + custom solver | ResearchGate title record | low |
+| 8 | Packing and legalization-free SAT-based placement for heterogeneous FPGAs (2022) | SAT-based heterogeneous placement formulation; emphasizes routability-aware placement and compact model | SAT (Boolean constraints) | DOI:10.1007/s13369-021-06176-4 | medium |
+| 9 | SkyEgg / related ASP-HLS/SoC symbolic synthesis papers | Symbolic synthesis flow combining routing/scheduling binding in an ASP solver loop, often with multi-objective updates | ASP/SAT + SMT coordination | recent symbolic synthesis papers (e.g., 2021 MDPI/related) | medium |
+|10| MATCHA (or similar edge-edge DNN deployment pipelines) | Uses OR-Tools/CP-SAT in deployment-time mapping/partitioning contexts; not a pure accelerator-design paper, but demonstrates solver use for DNN deployment decisions on heterogeneous accelerators | OR-Tools CP-SAT in deployment pipeline | arXiv:2604.09124 | low |
+
+* Relevance to your LLM-on-FPGA stack (2026-06-10)
+
+- High-confidence near-term CP payoff: use CP for
+  - operator/block quantization choices,
+  - tiling tuples,
+  - memory hierarchy placement,
+  - schedule/windowing constraints.
+- Keep P&R out of the CP core loop initially; use CP to prune candidates before running yosys/nextpnr.
+- For HLS-to-FPGA end-to-end reproducibility, use CP with hard constraints from board profile and keep a feedback loop that adds learned nogoods from failed builds.
+
+* Note on direct LLM+CP papers
+
+From this evidence pass, there are no widely cited, mature *LLM-specific* CP papers that become ready-to-run blueprints for FPGA inference pipelines. The strongest reusable signal comes from:
+- LLM-DSE papers (e.g., 2605.05920 / 2606.11117), and
+- long-standing CP/ASP/CSP work in HLS, mapping, and CAD.
+
+In practice, the path is hybridization: CP as a front-end design-space optimizer + actual build/verification via open FPGA flow.
+

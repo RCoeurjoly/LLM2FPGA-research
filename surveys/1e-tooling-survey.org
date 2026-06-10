@@ -29,12 +29,14 @@ open-source, Kintex-480T-first workflow.
 | torch.fx | Functional graph capture/transforms | Captures FX graph to identify operator-level tiling opportunities | Good abstraction boundary before ONNX lowering | Production |
 | torch.export | Stable graph export for newer torch versions | Exported graphs for downstream tooling | Better than raw tracing for control flow-sensitive graphs | Experimental |
 | ONNX | Interop graph format between frameworks and compilers | Core interchange between torch / TVM / custom compilers | Standard export for accelerator front-ends | Production |
+| ONNX-MLIR | ONNX graph to MLIR/LLVM codegen bridge | Lower ONNX models to MLIR/LLVM IR, shared libraries, or runtimes | Useful when you need deterministic compiler transforms before custom RTL/runtime wrappers | Experimental |
 | onnxruntime | Reference runtime + graph transforms | Sanity checks and baseline model opset handling | Use as validation oracle for graph semantics | Production |
 | QONNX | Quantized ONNX support (conversion/annotation) | Quantization-oriented front-end path | Helps keep int/bit-width policy explicit before hardware mapping | Experimental |
 | hls4ml | NN-to-HLS/HDL conversion patterns for ML | Works with Keras/ONNX flows for structured low-precision blocks | Useful for baseline HLS-style operator generation patterns | Production (community-maintained, model-type specific) |
 | FINN (Xilinx) | Quantized DNN dataflow compiler | High-level accelerator generation for Xilinx targets | Useful templates for dataflow and quantization; historically Vitis-oriented | O/P |
 | TVM + Relax/Relay | Full compiler stack for operators and tensor codegen | Explore operator lowering and schedule auto-tuning | Strong for autotuning, mixed hardware, but FPGA flow can require custom backend glue | Production |
 | torch-mlir | MLIR bridge for torch graphs | Direct MLIR dialect path before HLS/RTL generation | Useful if you want custom compiler passes and strict graph transforms | Production |
+| xDSL | Python-native compiler framework for SSA IR and MLIR interoperability | Python front-end for compiler IR experimentation and custom pass prototyping | Useful for creating model-level transformations without C++ compiler hooks | Research/Experimental |
 | IREE | MLIR-based compiler, runtime lowering for accelerators | Emerging for non-CUDA backends | Useful for compiler architecture patterns and runtime/ABI conventions | Experimental |
 | NART / nncase / VTA ecosystems | Tiny inference toolchains | VTA-like dataflow and compiler stacks for accel hardware | Useful for template kernels and data movement ideas | Experimental |
 
@@ -43,6 +45,7 @@ open-source, Kintex-480T-first workflow.
 | Tool | Role | OSS? | Strength for this project | Integration caveats |
 |------+------|------|--------------------------|--------------------|
 | yosys | Logic synthesis, pass infra, netlist ops | O | Core open synthesis backbone; good for bit-accurate transformations and sanity builds | Limited SystemVerilog feature coverage; best with constrained code styles |
+| Amaranth | Python HDL + toolchain (sim/build) for synchronous logic and reusable SoC components | O | Practical Python-based RTL generation for rapid kernel iteration with existing Verilog coexistence | Does not itself replace backend placement; pair with existing Verilog backends |
 | sv2v | SystemVerilog -> Verilog converter | O | Enables subset conversion for older flows | Not a full SV compiler; may miss advanced constructs |
 | slang | SystemVerilog parser/front-end | O | Better parsing/analysis than many legacy Verilog parsers | Build/CLI learning overhead |
 | Surelog + UHDM | SV/Verilog elaboration + hierarchy | O | Good for robust frontend parsing and design database | Ecosystem still evolving |
@@ -70,12 +73,16 @@ open-source, Kintex-480T-first workflow.
 |------------------+----------------|---------|-------------------------|
 | PyTorch -> ONNX | torch.onnx.export / onnx-export tooling | Convert checkpoints into graph + node metadata | High: required first step for graph-level DSE |
 | ONNX -> Custom pass graph | onnxsim / custom Python graph passes | Shape inference, folding, and operator canonicalization | High: reduces accidental solver-state inflation |
+| ONNX -> MLIR/Runtime | ONNX-MLIR lowering pipeline | Emit MLIR, LLVM IR, `.so` / `.o` / `.jar` outputs from ONNX | Medium: use when deterministic codegen contracts are needed before custom flows |
 | PyTorch -> Constraint-aware candidate models | GeoTorch | Apply orthogonal/low-rank/invertible/PSD constraints in model tensors at definition time | High: controls model family before DSE, reducing search from high-dimensional weight space | Useful when your first filter is architectural regularization, not RTL-only changes |
+| PyTorch/ONNX -> custom MLIR passes | xDSL | Build MLIR transform prototypes in Python on top of MLIR tooling | Medium: quick route to low-cost bridge experiments before C++ compiler integration |
 | ONNX -> HLS-like IR | hls4ml / custom ONNX-to-HLS translators | Operator-specific scheduling candidates | High: start with MLP/attention blocks first |
 | Torch-MLIR -> CIRCT | Torch-MLIR/MLIR dialect lowering | Keep control of optimization vs hardware legality | Medium: useful if you want custom MLIR pass graph |
 | MLIR -> RTL | CIRCT | Convert typed hardware-oriented IR toward RTL | Medium: useful when you need typed hardware contracts |
 | HLS/CIRCT -> RTL -> Yosys | nextpnr flow | Final synthesis and placement loop | Core path for open-source execution |
 | Verilog <- Generated kernels | sv2v/slang/UHDM as needed | Handle SV dialect mismatch and normalize test targets | Medium: mostly needed for legacy blocks |
+| MLIR/RTL -> bitstream workflows | RapidWright | Read/write Xilinx DCP and manipulate pre-implemented modules | Medium: helpful for fast reuse of placed+routed shells when compatible |
+| Python + board control -> accelerator runtime | PYNQ overlays | Python API loads programmable overlays and controls PL IP from Zynq/Alveo workflows | Medium: strong for board-application loop and software/accelerator co-validation |
 | Sim outputs -> CP/DSE feedback | cocotb/pytest traces + parser -> OR-Tools constraints | Build failure-driven constraints: timing/route/resource vetoes | High: this is your “self-correcting search” path |
 | Build logs -> metadata | board profile + JSON schema | Store runtime/resource traces for reranking candidates | High: improves actionability and reproducibility |
 

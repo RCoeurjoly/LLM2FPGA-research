@@ -57,6 +57,21 @@ The table below keeps a normalized index for learning notes and cross-paper comp
 | 46 | ASP/SAT-Based Symbolic Synthesis / SkyEgg family (2021+) | candidate | No | Medium | Low | No | none | proprietary | fpga_generic | partial | conditional | ASP-guided HLS-to-hardware co-synthesis | FPGA/SoC symbolic DSE | low | low |
 | 47 | MATCHA-style CP-SAT DNN Deployment Mapping (2025-26) | candidate | No | Low | Low | No | none | proprietary | fpga_generic | partial | conditional | CP-SAT for partitioning/deployment/quant choices | DNN deployment pipeline | low | low |
 
+* Solver Taxonomy (second pass: IDs 38-47)
+
+| ID | Solver family | Primary solver family | Secondary solver family | Practical use case |
+|----+---------------+----------------------+------------------------+---------------------|
+| 38 | Constraints-Driven Scheduling and Resource Assignment (TODAES: JaCoP 2003) | CP | CP + branch-and-bound | Good for HLS scheduling and resource assignment with strong constraint pruning |
+| 39 | Global Assignment and Scheduling of Behaviors via CP/HCDG (JSysArch 2003) | CP | CP + search heuristics | Behavior-level scheduling, binding, and sharing optimization |
+| 40 | Communication Scheduling on SoPC with CP (FPL 2004) | CP | CP + ad-hoc heuristics | Communication scheduling under NoC/topology constraints |
+| 41 | Constraint Programming in Embedded Systems Design (Microprocessors & Microsystems 2019) | CP | CP + MiniZinc modeling | Survey/reference for where CP helps vs hurts at different objective scales |
+| 42 | High-Level Synthesis of On-Chip Multiprocessor Architectures via ASP (JPDC 2018) | ASP | SAT-style exact search | Architectural synthesis and scheduler co-optimization |
+| 43 | Satisfiability-based Detailed FPGA Routing (SAT-era formulations) | SAT | CP-SAT | Detailed/legal routing feasibility checks and channel routing style constraints |
+| 44 | Component Placement on FPGAs with CP (ReCoSoC 2013) | CP | CP + custom meta-modeling | Module placement with reconfiguration-aware constraints |
+| 45 | Packing and Legalization-Free SAT Placement for Heterogeneous FPGAs (2022) | SAT | SMT | Heterogeneous placement legality and compact routing-aware search |
+| 46 | ASP/SAT-Based Symbolic Synthesis / SkyEgg family (2021+) | ASP | SAT/SMT refinement | Symbolic co-synthesis loop with iterative objective updates |
+| 47 | MATCHA-style CP-SAT DNN Deployment Mapping (2025-26) | CP-SAT | LP/heuristic dispatch | Deployment-time partitioning and quantization/mapping decisions |
+
 * Working notes
 - Reproducibility-field vocabulary:
   - `Code availability`: `repo`, `artifact_only`, `private`, `promised`, `withdrawn`, `none`

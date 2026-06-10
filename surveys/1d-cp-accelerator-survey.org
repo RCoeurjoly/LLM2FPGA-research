@@ -60,3 +60,38 @@ From this evidence pass, there are no widely cited, mature *LLM-specific* CP pap
 
 In practice, the path is hybridization: CP as a front-end design-space optimizer + actual build/verification via open FPGA flow.
 
+* Solver tags for candidate papers (IDs 38-47)
+
+| Registry ID | Solver family | Why this tag is assigned |
+|------------+---------------+-------------------------|
+| 38 | CP | Finite-domain scheduling model over operator order, resources, and binding |
+| 39 | CP | Assignment/scheduling graph with conditional behavior constraints |
+| 40 | CP | Communication event ordering with channel constraints |
+| 41 | CP | Survey and method class indicates MiniZinc + CP as primary approach |
+| 42 | ASP | ASP rule encoding for architectural synthesis and scheduling |
+| 43 | SAT | Boolean encoding of routing segment legality / net feasibility |
+| 44 | CP | Module placement under static and dynamic reconfiguration constraints |
+| 45 | SAT/SMT | Heterogeneous placement with compact Boolean constraints |
+| 46 | ASP/SAT | Symbolic synthesis loops mixing ASP synthesis and SAT/SMT validation |
+| 47 | CP-SAT | Deployment partitioning and mapping with cardinality/resource constraints |
+
+* Kintex-480T Open-Source Tiny-to-Scale Decision Matrix
+
+This matrix is the practical policy for your stack:
+yosys + nextpnr-xilinx, fixed target (YPCB Kintex board), model-growth strategy from very small workloads upward.
+
+| Decision axis | Tier 1 (tiny warm-up) | Tier 2 (incremental scale) | Tier 3 (actionable at scale) |
+|--------------+------------------------+------------------------------+------------------------------|
+| Optimization engine | CP only for legal candidate filtering | CP + LP/ILP relaxation checks + lightweight local heuristics | CP + CP-SAT/SMT subroutines; keep P&R external |
+| Search space | Quantization mode, kernel tiling, SIMD/MAC width, buffer depth | KV cache policy, tiling depth, dataflow mode (streaming vs batch), HLS unroll/pipe | Multi-kernel co-design, memory hierarchy split, partial reconfiguration stage scheduling |
+| Solver constraints | No timing-closure constraints; only architecture envelopes | Add static timing/power/resource estimates and hard resource ceilings | Add empirical timing/route feasibility scores from recent build feedback |
+| Execution budget | Minute-scale loops; 1 design point per solver run | Hour-scale batched candidates; checkpoint failed builds and back off | Weekend-scale sweeps only for narrowed Pareto set |
+| Evidence bar | Must produce runnable SV/HLS + place/route script | Must reproduce reported resource + one latency metric | Must include accuracy, throughput, and board-level throughput-vs-power |
+| Paper classes to prioritize | ID 21, 9, 12, 14 + CP candidates 38-40 | IDs 33, 34, 32, 46 when tool support improves | IDs 42-47 where hybrid solver loops can be prototyped |
+| Reproducibility gate | Open artifact or at least YAML schema + board profile | Deterministic build scripts + captured environment + parser-validated specs | Fully rerunnable end-to-end command script with board abstraction profile |
+
+* Quick operating policy
+
+- Keep CP in the fast inner loop only where solutions are small and discrete.
+- Treat SAT/SAT-SMT papers as "validation helpers" for legal or routing-critical filters, not primary synthesis engines.
+- Promote ILP/heuristic hybrids only after the CP layer stabilizes and empirical board feedback is incorporated as hard constraints.

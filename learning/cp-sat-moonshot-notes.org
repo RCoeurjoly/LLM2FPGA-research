@@ -1,0 +1,214 @@
+# CP-SAT / Project Bodger / Moonshot Notes
+
+#+TITLE: CP-SAT and Project Bodger Notes for LLM2FPGA
+#+DATE: 2026-06-11
+
+* Purpose
+
+Collect notes from the Silicon Horizons moonshot discussion, Raj Apte / Project
+Bodger references, and CP-SAT modelling material that may sharpen the
+constraint-programming and inverse-design path for LLM inference on FPGA.
+
+This file is for source notes and interpretation. Distilled questions should be
+promoted to [[file:../notes/questions.org][notes/questions.org]]. Concrete implementation plans should be
+promoted to [[file:cp-llm-fpga-dse.org][cp-llm-fpga-dse.org]] or
+[[file:moonshot-cp-inverse-design.org][moonshot-cp-inverse-design.org]].
+
+* Source links
+
+- Silicon Horizons | The Moonshot Podcast:
+  https://www.youtube.com/watch?v=WpVNQxv0eKc&t=1247s
+- CP-SAT Primer, modelling:
+  https://d-krupke.github.io/cpsat-primer/modelling.html
+
+* Why this matters
+
+The LLM2FPGA moonshot depends on making the design loop concrete enough that a
+solver can reason about it:
+
+- model behavior becomes a contract,
+- board constraints become finite domains and inequalities,
+- build failures become learned constraints,
+- experiment records become reusable evidence,
+- search quality is judged against naive grid/random and hand-picked baselines.
+
+The main question to carry through these notes:
+
+#+begin_quote
+What modelling choices make the CP-SAT problem small, explainable, and useful
+enough to guide real FPGA experiments?
+#+end_quote
+
+* Raj Apte / Project Bodger notes
+
+Use this section for notes from the podcast segment and any Project Bodger
+material.
+
+** Raw takeaways
+
+- TODO: Capture the specific Project Bodger framing that connects moonshot
+  thinking to constraint/design automation.
+- TODO: Identify the hardest "monkey" Raj Apte points to, if stated.
+- TODO: Capture any comments on iteration loops, design representation, or
+  turning failures into search constraints.
+
+** LLM2FPGA interpretation
+
+- The useful analogy is not "AI writes hardware."
+- The useful analogy is "hardware design becomes a constrained search loop with
+  explicit success and failure evidence."
+- For this repo, Project Bodger-like thinking should be judged by whether it
+  reduces human architecture iterations on a fixed board/model target.
+
+** Questions
+
+- What does Project Bodger treat as the design object: geometry, constraints,
+  physical tests, manufacturing instructions, or all of them?
+- What is the smallest equivalent design object for LLM2FPGA: one operator, one
+  dataflow block, one memory schedule, or one model slice?
+- Does the Project Bodger loop optimize design novelty, buildability, cost, or
+  all three?
+- How should "buildability" translate to FPGA: synthesis pass, route pass,
+  timing slack, HIL correctness, or tokens/s?
+
+* CP-SAT modelling notes
+
+Use this section for modelling patterns from the CP-SAT primer.
+
+** Modelling principles to extract
+
+- Prefer finite integer domains over unconstrained numeric freedom.
+- Make illegal states unrepresentable where possible.
+- Separate hard constraints from objective preferences.
+- Use auxiliary variables to expose useful structure instead of hiding logic in
+  opaque expressions.
+- Add redundant constraints when they improve propagation and make infeasibility
+  easier to diagnose.
+- Keep the first model small enough to debug by inspection.
+
+** LLM2FPGA variable candidates
+
+Semantic variables:
+
+- `operator_scope`: linear, FFN, attention projection.
+- `mode`: prefill, decode.
+- `w_bits`, `a_bits`, `kv_bits`.
+- `accuracy_gate`: exact layer output, bounded error, token agreement.
+
+Architecture variables:
+
+- `tile_m`, `tile_n`, `tile_k`.
+- `lanes`.
+- `acc_bits`.
+- `use_dsp_mul`, `use_lut_mul`.
+- `pipeline_ii`.
+- `fused_block`.
+
+Memory variables:
+
+- `weights_in_bram`, `weights_in_uram`, `weights_in_ddr`.
+- `kv_in_bram`, `kv_in_ddr`.
+- `stream_width`.
+- `buffer_depth_class`.
+
+Physical-risk variables:
+
+- `target_clock_class`.
+- `timing_margin_class`.
+- `routing_pressure_class`.
+- `seed_budget`.
+- `floorplan_region_tag`.
+
+** Hard constraints to model first
+
+- Shape divisibility:
+  - `hidden_dim % tile_k = 0`
+  - `out_dim % tile_n = 0`
+- Arithmetic safety:
+  - `acc_bits >= ceil_log2(tile_k) + w_bits + a_bits - 1`
+- Resource envelope:
+  - estimated LUT/FF/DSP/BRAM/URAM under conservative margins.
+- Memory fit:
+  - selected on-chip buffers must fit available BRAM/URAM budget.
+- Bandwidth:
+  - estimated DDR bytes/cycle must stay below measured board envelope.
+- Implementation support:
+  - unsupported combinations are disallowed up front.
+
+** Objective candidates
+
+Start lexicographic rather than with a fragile weighted sum:
+
+1. feasible under hard constraints,
+2. lower estimated cycles per token,
+3. higher timing margin,
+4. lower compile-risk class,
+5. lower resource footprint among near-equal designs.
+
+* Modelling traps
+
+- Encoding too many architecture ideas before the first truth loop exists.
+- Treating estimated timing as truth instead of a risk signal.
+- Letting the objective hide correctness or buildability constraints.
+- Using CP-SAT only as grid-search syntax.
+- Adding learned constraints that overfit one failed run.
+- Comparing against no baseline, which makes any found candidate look good.
+
+* Implications for the moonshot hypothesis
+
+The moonshot note should stay centered on a small inverse-design loop:
+
+- one board,
+- one model/layer shape,
+- one operator family first,
+- explicit baselines,
+- CP-generated candidates,
+- real build/correctness feedback,
+- learned constraints,
+- measured reduction in synthesis attempts.
+
+Project Bodger-style inspiration is useful only if it strengthens this loop.
+Otherwise it risks becoming platform-first thinking.
+
+* Candidate note promotions
+
+Promote to [[file:moonshot-cp-inverse-design.org][moonshot-cp-inverse-design.org]]:
+
+- source-backed claims about Project Bodger as a moonshot analogy,
+- revised monkey definition,
+- revised kill criteria,
+- new design-loop principles.
+
+Promote to [[file:cp-llm-fpga-dse.org][cp-llm-fpga-dse.org]]:
+
+- concrete CP-SAT variables,
+- constraints,
+- objective ordering,
+- solver implementation choices,
+- experiment schema changes.
+
+Promote to [[file:mlir-fabric-cp-mapped-design.org][mlir-fabric-cp-mapped-design.org]]:
+
+- compute graph / resource graph / mapped design IR concepts,
+- static scheduling assumptions,
+- handshake-avoidance principles,
+- future fabric extraction and mapping contracts.
+
+Promote to [[file:../notes/questions.org][notes/questions.org]]:
+
+- unresolved questions that need paper/video/source follow-up,
+- doubts about feasibility,
+- benchmark definition gaps.
+
+* Open questions
+
+- Which CP-SAT modelling pattern best represents mutually exclusive storage
+  placement without introducing weak constraints?
+- Should candidate novelty be an explicit constraint or only a post-hoc
+  comparison against hand/grid baselines?
+- What learned-constraint format is safest: nogood clauses, margin updates, or
+  surrogate-model priors?
+- Can timing-risk classes be calibrated from a small number of Yosys/nextpnr
+  runs, or do they require too many builds to be useful?
+- What is the smallest M0 candidate set that can prove the loop is better than
+  grid/random?

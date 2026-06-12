@@ -1,0 +1,290 @@
+{
+  "schema": "mapped_design_ir.v0",
+  "design_id": "tinystories-linear64-int8-m0",
+  "target": {
+    "board": "YPCB",
+    "part": "xc7k480tffg1156",
+    "device_family": "xc7",
+    "chipdb": "$fpgaChipdb from /home/roland/LLM2FPGA flake",
+    "toolchain": {
+      "environment": "nix develop /home/roland/LLM2FPGA",
+      "yosys": "yosys-with-plugins",
+      "nextpnr": "nextpnr-xilinx stable-backports",
+      "fasm": "openXC7 fasm",
+      "prjxray": "openXC7 prjxray"
+    }
+  },
+  "sources": {
+    "compute_graph": {
+      "kind": "torch-mlir-linalg-json",
+      "uri": "artifacts/compute/tinystories-linear64.compute_graph.json"
+    },
+    "resource_graph": {
+      "kind": "openxc7-nextpnr-coarse-resource-graph",
+      "uri": "artifacts/fpga/xc7k480tffg1156.resource_graph.json"
+    },
+    "baseline": {
+      "kind": "llm2fpga-task6",
+      "uri": "/home/roland/LLM2FPGA"
+    }
+  },
+  "interfaces": [
+    {
+      "id": "selftest_led",
+      "kind": "debug",
+      "role": "pass_fail_status",
+      "clock": "sys_clk",
+      "ports": [
+        {
+          "name": "led_3bits_tri_o",
+          "direction": "output",
+          "width": 3
+        }
+      ]
+    }
+  ],
+  "clocks": [
+    {
+      "id": "sys_clk",
+      "mhz": 50.0,
+      "reset": "SYS_RSTN",
+      "xdc": {
+        "create_clock_period_ns": 20.0,
+        "port": "SYS_CLK"
+      }
+    }
+  ],
+  "instances": [
+    {
+      "id": "mac_cluster0",
+      "kind": "dsp_mac_lane",
+      "clock": "sys_clk",
+      "count": 8,
+      "params": {
+        "a_width": 8,
+        "b_width": 8,
+        "acc_width": 32
+      },
+      "region": "cr_x1y2",
+      "implements": [
+        "linear0.tile0"
+      ]
+    },
+    {
+      "id": "linear0_weight_bram",
+      "kind": "bram_buffer",
+      "clock": "sys_clk",
+      "count": 8,
+      "params": {
+        "read_latency": 1
+      },
+      "region": "cr_x1y2",
+      "implements": [
+        "linear0.weights"
+      ]
+    },
+    {
+      "id": "linear0_fsm",
+      "kind": "control_fsm",
+      "clock": "sys_clk",
+      "count": 1,
+      "params": {
+        "style": "static_counter"
+      },
+      "region": "cr_x1y2",
+      "implements": [
+        "linear0.schedule"
+      ]
+    }
+  ],
+  "memories": [
+    {
+      "id": "input_vec_q",
+      "kind": "bram",
+      "width": 8,
+      "depth": 64,
+      "ports": "1r1w",
+      "clock": "sys_clk",
+      "region": "cr_x1y2",
+      "initialization": {
+        "source": "testbench",
+        "layout": "contiguous_i8"
+      }
+    },
+    {
+      "id": "weight_tile_q",
+      "kind": "bram",
+      "width": 64,
+      "depth": 64,
+      "ports": "1r",
+      "clock": "sys_clk",
+      "region": "cr_x1y2",
+      "initialization": {
+        "source": "weights/linear0.tile0.hex",
+        "layout": "packed_8xi8_per_word"
+      }
+    },
+    {
+      "id": "output_acc_q",
+      "kind": "register_file",
+      "width": 32,
+      "depth": 8,
+      "ports": "8w",
+      "clock": "sys_clk",
+      "region": "cr_x1y2"
+    }
+  ],
+  "ops": [
+    {
+      "id": "linear0.tile0",
+      "source_op": "module.blocks.0.mlp.fc0",
+      "op_class": "linear_tile",
+      "shape": {
+        "m": 8,
+        "k": 64
+      },
+      "quant": {
+        "activation": "i8",
+        "weight": "i8",
+        "accumulator": "i32",
+        "requant": "fixed_q024"
+      },
+      "binding": {
+        "instance": "mac_cluster0",
+        "lanes": 8,
+        "memory": "weight_tile_q",
+        "region": "cr_x1y2"
+      }
+    }
+  ],
+  "schedule": {
+    "model": "static_single_clock",
+    "transactions": [
+      {
+        "id": "linear0.tile0.step0",
+        "cycle": 0,
+        "duration": 64,
+        "op": "linear0.tile0",
+        "uses": [
+          "mac_cluster0",
+          "linear0_weight_bram"
+        ],
+        "reads": [
+          "input_vec_q",
+          "weight_tile_q"
+        ],
+        "writes": [
+          "output_acc_q"
+        ]
+      }
+    ]
+  },
+  "dataflow": [
+    {
+      "id": "linear0.weights.to.mac",
+      "from": "weight_tile_q",
+      "to": "mac_cluster0",
+      "tensor": "linear0.weight.tile0",
+      "cycle": 0,
+      "duration": 64,
+      "mechanism": "bram_read"
+    }
+  ],
+  "physical": {
+    "regions": [
+      {
+        "id": "cr_x1y2",
+        "kind": "clock_region",
+        "clock_region": "X1Y2",
+        "resources": {
+          "lut": 12000,
+          "ff": 24000,
+          "dsp": 64,
+          "bram18": 32
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "id": "sys_clk_pin",
+        "kind": "pin_xdc",
+        "strength": "hard",
+        "applies_to": [
+          "SYS_CLK"
+        ],
+        "value": {
+          "property": "PACKAGE_PIN",
+          "value": "AA28"
+        },
+        "lowering": "xdc",
+        "reason": "YPCB board pin"
+      },
+      {
+        "id": "mac_cluster0_region",
+        "kind": "region_hint",
+        "strength": "advisory",
+        "applies_to": [
+          "mac_cluster0"
+        ],
+        "value": {
+          "region": "cr_x1y2"
+        },
+        "lowering": "none",
+        "reason": "Coarse CP placement; verify with nextpnr"
+      }
+    ]
+  },
+  "codegen": {
+    "top_module": "tinystories_linear64_m0_top",
+    "style": "direct_systemverilog_static",
+    "outputs": {
+      "sources_f": "build/tinystories-linear64-int8-m0/sources.f",
+      "systemverilog": [
+        "build/tinystories-linear64-int8-m0/rtl/tinystories_linear64_m0_top.sv"
+      ],
+      "xdc": [
+        "build/tinystories-linear64-int8-m0/constraints/generated.xdc"
+      ],
+      "nextpnr_hooks": {
+        "pre_place": "build/tinystories-linear64-int8-m0/nextpnr/pre_place.py"
+      }
+    }
+  },
+  "estimates": {
+    "cycles": {
+      "linear0.tile0": 64,
+      "total": 96
+    },
+    "resources": {
+      "lut": 1600,
+      "ff": 1200,
+      "dsp": 8,
+      "bram18": 8
+    },
+    "timing": {
+      "target_mhz": 50.0,
+      "critical_paths": [
+        "bram_read_to_dsp_accumulate"
+      ],
+      "risk": "medium"
+    }
+  },
+  "checks": [
+    {
+      "id": "schema",
+      "kind": "schema",
+      "command": "python -m jsonschema schemas/mapped_design_ir.v0.schema.json examples/mapped_design_ir.v0.tinystories_linear.json",
+      "expected": "pass"
+    },
+    {
+      "id": "pnr",
+      "kind": "nextpnr",
+      "command": "nextpnr-xilinx --chipdb $fpgaChipdb --xdc generated.xdc --json design.yosys.json --pre-place pre_place.py --freq 50 --write placed.json --fasm design.fasm",
+      "expected": "pass timing or produce actionable failure"
+    }
+  ],
+  "rationale": {
+    "objective": "Smallest useful CP-generated linear tile that can be compared with hand Task 6 kernels.",
+    "why_not_nextpnr_input": "nextpnr consumes Yosys JSON plus XDC/hooks; mapped_design_ir is the upstream generator contract."
+  }
+}

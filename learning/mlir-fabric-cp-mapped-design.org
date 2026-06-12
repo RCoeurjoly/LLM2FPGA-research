@@ -1,0 +1,642 @@
+# MLIR + Fabric Graph + CP Mapped Design IR
+
+#+TITLE: MLIR Compute Graph + FPGA Resource Graph + CP Mapped Design IR
+#+DATE: 2026-06-12
+
+* Purpose
+
+This note defines the dream architecture for using constraint programming to
+map LLM computation onto an FPGA while still treating the open-source EDA stack
+as the golden reference.
+
+This note is downstream of the broader language/semantics design in
+[[file:cp-llm-fpga-compiler-system-design.org][CP for LLM Inference on FPGA as a Compiler/System]].  The mapped-design IR
+should be judged as one candidate middle-end contract, not as the whole system.
+
+The core pipeline is:
+
+#+begin_src text
+PyTorch / torch-mlir compute graph
+  + FPGA resource graph from nextpnr/chipdb/OpenXC7
+  -> CP / OR-Tools
+  -> mapped_design_ir
+  -> SystemVerilog
+  -> yosys/nextpnr truth
+#+end_src
+
+The important artifact is `mapped_design_ir`: an inspectable architecture
+decision record that says how computation is bound to FPGA resources over space
+and time. CP should not emit SystemVerilog directly.
+
+* Current sequencing
+
+This is a research/design artifact, not an immediate implementation step.
+
+Follow [[file:strategy-baseline-before-cp.org][strategy-baseline-before-cp.org]]:
+
+- finish the current `~/LLM2FPGA/` TinyStories/YPCB baseline first,
+- use its measured bottlenecks as future CP targets,
+- do not divert Task 6 implementation into this research path yet.
+
+* Design principles
+
+1. Keep the open-source EDA stack as the truth source.
+
+   - `torch-mlir` / MLIR: computation representation.
+   - `yosys`: synthesis truth and logical cell/resource evidence.
+   - `nextpnr-xilinx`: placement/routing/timing truth.
+   - chipdb / OpenXC7 / Project X-Ray: FPGA fabric facts.
+   - HIL: board behavior, later including DDR3/PCIe measurements.
+
+   Use the `~/LLM2FPGA/` Nix dev shell as the canonical tool environment for
+   this stack, not the ambient shell in this research repo.
+
+   Canonical command shape:
+
+   #+begin_src sh
+   nix develop /home/roland/LLM2FPGA
+   #+end_src
+
+   The current `~/LLM2FPGA/flake.nix` dev shell is the right source for:
+
+   - `yosysPkg` with plugins,
+   - `yosysSlang`,
+   - `openXC7Nextpnr`,
+   - `openXC7Prjxray`,
+   - `openXC7Fasm`,
+   - `prjxrayPythonDeps`,
+   - chipdb and Project X-Ray environment variables.
+
+   The shell exports:
+
+   #+begin_src sh
+   NEXTPNR_XILINX_DIR
+   NEXTPNR_XILINX_PYTHON_DIR
+   PRJXRAY_DB_DIR
+   PRJXRAY_PYTHON_DIR
+   PYTHONPATH
+   #+end_src
+
+   Therefore any future extractor/generator experiment should be launched from
+   that dev shell, or from a Nix derivation in `~/LLM2FPGA/`, so it uses the same
+   yosys/nextpnr/OpenXC7 stack as the board-real Task 6 flow.
+
+2. Model the FPGA as a resource graph, not as Verilog.
+
+   Verilog describes designs placed onto the FPGA. The FPGA fabric itself is a
+   configurable spatial resource graph: regions, BELs, sites, wires, PIPs,
+   timing costs, and constraints.
+
+3. Use CP to produce a mapped design, not raw RTL.
+
+   CP solves the architecture/mapping problem. A later generator lowers the
+   mapped design into lean synchronous SystemVerilog or CIRCT `hw/comb/seq/sv`.
+
+4. Avoid `handshake` as the default lowering path.
+
+   Task 3 showed that handshake-heavy lowering can introduce too much overhead
+   for this resource-constrained path. Use static scheduling and explicit
+   control by default. Reserve ready/valid or elastic structures for true
+   variable-latency boundaries.
+
+* Artifact 1: compute_graph
+
+`compute_graph` comes from the PyTorch model through `torch-mlir`.
+
+The goal is to preserve enough raw structure to allow surprising mappings, but
+also lower enough to expose operations the solver can reason about.
+
+Recommended representation ladder:
+
+#+begin_src text
+PyTorch
+  -> torch-mlir Torch dialect
+  -> linalg / tensor / arith / scf / memref / quant
+  -> compute_graph
+#+end_src
+
+`compute_graph` should contain:
+
+- operation nodes,
+- tensor edges,
+- dependencies,
+- loop/reduction structure,
+- tensor shapes and bit widths,
+- tensor lifetimes,
+- memory effects,
+- legal rewrite/fusion boundaries,
+- source links back to MLIR locations.
+
+The CP layer should not operate directly on high-level `aten` operations if
+doing so hides reductions, memory accesses, or lifetimes.
+
+* Artifact 2: fpga_resource_graph
+
+`fpga_resource_graph` is extracted from the open-source FPGA toolchain.
+
+Initial sources:
+
+- nextpnr-xilinx chipdb,
+- OpenXC7 / Project X-Ray database,
+- yosys techlibs and techmaps,
+- board constraints where they describe FPGA-only pins/clocks.
+
+DDR3 is intentionally excluded from the first FPGA-only model. It is a later
+system/memory extension.
+
+** First model: coarse regions
+
+Do not start at full BEL/wire/PIP detail. Start with coarse regions:
+
+#+begin_src json
+{
+  "device": "xc7k480t",
+  "regions": [
+    {
+      "id": "region_x0y0",
+      "lut": 12000,
+      "ff": 24000,
+      "dsp": 64,
+      "bram18": 32,
+      "clock_region": "x0y0"
+    }
+  ],
+  "links": [
+    {
+      "from": "region_x0y0",
+      "to": "region_x0y1",
+      "route_cost": 1,
+      "delay_ps_est": 300
+    }
+  ]
+}
+#+end_src
+
+This is not a replacement for nextpnr. It is a planning abstraction. nextpnr
+remains the physical verifier.
+
+** Refinement ladder
+
+1. Coarse-region resource counts and route costs.
+2. DSP/BRAM BEL-level binding.
+3. LUT/FF site and region pressure.
+4. Timing/routing-cost calibration from nextpnr outputs.
+5. Optional full routing graph for selected subproblems only.
+6. Optional custom MLIR `fpga.fabric` dialect after JSON/SQLite extraction
+   stabilizes.
+
+* Artifact 3: mapped_design_ir
+
+`mapped_design_ir` is the CP output.
+
+It is the architecture decision record between:
+
+#+begin_src text
+compute_graph + fpga_resource_graph
+#+end_src
+
+and:
+
+#+begin_src text
+generated SystemVerilog / CIRCT hw/comb/seq/sv
+#+end_src
+
+It should include:
+
+| Field | Meaning |
+|-------+---------|
+| `bindings` | which compute ops use which FPGA resources |
+| `placements` | where compute/storage lives, initially at coarse region level |
+| `lifetimes` | when tensors/intermediates are alive |
+| `execution_order` | when reused resources run each task |
+| `data_movement` | how values move between resources |
+| `pipeline_boundaries` | where registers/cuts are inserted |
+| `resource_estimates` | expected LUT/FF/DSP/BRAM before yosys truth |
+| `rationale` | tight constraints, bottlenecks, and why CP chose the mapping |
+
+Example shape:
+
+#+begin_src json
+{
+  "design_id": "mapped-ts1m-block0-mlp-v0",
+  "bindings": [
+    {
+      "op": "block0.mlp.fc.tile0.mulacc",
+      "resource": "region_x0y1.dsp_pool",
+      "start_cycle": 120,
+      "end_cycle": 184
+    }
+  ],
+  "placements": [
+    {
+      "object": "activation_buffer_ping",
+      "resource": "region_x0y1.bram_pool"
+    }
+  ],
+  "lifetimes": [
+    {
+      "tensor": "hidden_state_q",
+      "live_from": 0,
+      "live_to": 900
+    }
+  ],
+  "data_movement": [
+    {
+      "from": "region_x0y1.bram_pool",
+      "to": "region_x0y1.dsp_pool",
+      "tensor": "hidden_state_q",
+      "cycles": [120, 184]
+    }
+  ],
+  "pipeline_boundaries": [
+    {
+      "after": "block0.mlp.fc.tile0.mulacc",
+      "reason": "target_clock_margin"
+    }
+  ],
+  "resource_estimates": {
+    "lut": 18000,
+    "ff": 9000,
+    "dsp": 32,
+    "bram18": 80
+  },
+  "rationale": {
+    "bottleneck": "dsp_reuse",
+    "tight_constraints": ["dsp", "bram_region_x0y1"]
+  }
+}
+#+end_src
+
+* Why CP output is not directly Verilog
+
+Direct Verilog emission from CP would make the key decisions hard to inspect
+and hard to learn from.
+
+`mapped_design_ir` gives:
+
+- a stable boundary between solver and generator,
+- a place to compare CP outputs against hand-designed baselines,
+- a compact artifact for debugging infeasible or surprising mappings,
+- a feedback target for yosys/nextpnr/HIL results,
+- a way to regenerate RTL after generator improvements.
+
+The final downstream artifact can still be SystemVerilog. It should be produced
+from `mapped_design_ir`, not directly from OR-Tools.
+
+** Exact v0 contract
+
+The v0 format is JSON, validated by:
+
+- [[file:../schemas/mapped_design_ir.v0.schema.json][schemas/mapped_design_ir.v0.schema.json]]
+
+A small concrete example is:
+
+- [[file:../examples/mapped_design_ir.v0.tinystories_linear.json][examples/mapped_design_ir.v0.tinystories_linear.json]]
+
+The v0 schema is intentionally a CP-to-codegen contract. It is not a nextpnr
+input format.
+
+Required top-level fields:
+
+| Field | Purpose |
+|-------+---------|
+| `schema` | Must be `mapped_design_ir.v0`. |
+| `design_id` | Stable name for this mapped candidate. |
+| `target` | Board, part, family, chipdb/toolchain identity. |
+| `sources` | Provenance links to compute graph, resource graph, model, weights, baseline. |
+| `interfaces` | Fixed external boundary: host, PCIe/JTAG/debug/stream ports. |
+| `clocks` | Clock/reset intent and generated `create_clock` information. |
+| `instances` | Hardware instances the generator must emit: MAC lanes, BRAMs, FSMs, muxes, registers, extern IP. |
+| `memories` | Logical memories, widths/depths/ports, initialization/layout. |
+| `ops` | Compute operations from the model and their binding to instances. |
+| `schedule` | Static or boundary-dynamic cycle transactions. |
+| `dataflow` | Tensor/value movement between memories and compute instances. |
+| `physical` | Coarse regions and physical constraints/hints. |
+| `codegen` | Output files the generator must produce. |
+| `estimates` | Solver estimates for cycles, resources, and timing risk. |
+| `checks` | Commands expected to validate the candidate. |
+| `rationale` | Objective, tight constraints, surprising choices, known risks. |
+
+The most important design choice is that `instances`, `ops`, `schedule`, and
+`dataflow` are the semantic heart of the IR. `physical` is deliberately split
+between hard board facts, soft placement intent, and nextpnr-hook constraints.
+
+Example v0 skeleton:
+
+#+begin_src json
+{
+  "schema": "mapped_design_ir.v0",
+  "design_id": "tinystories-linear64-int8-m0",
+  "target": {
+    "board": "YPCB",
+    "part": "xc7k480tffg1156",
+    "device_family": "xc7",
+    "toolchain": {
+      "environment": "nix develop /home/roland/LLM2FPGA",
+      "yosys": "yosys-with-plugins",
+      "nextpnr": "nextpnr-xilinx stable-backports"
+    }
+  },
+  "instances": [
+    {
+      "id": "mac_cluster0",
+      "kind": "dsp_mac_lane",
+      "clock": "sys_clk",
+      "count": 8,
+      "params": { "a_width": 8, "b_width": 8, "acc_width": 32 },
+      "region": "cr_x1y2"
+    }
+  ],
+  "ops": [
+    {
+      "id": "linear0.tile0",
+      "source_op": "module.blocks.0.mlp.fc0",
+      "op_class": "linear_tile",
+      "shape": { "m": 8, "k": 64 },
+      "quant": { "activation": "i8", "weight": "i8", "accumulator": "i32" },
+      "binding": { "instance": "mac_cluster0", "lanes": 8, "region": "cr_x1y2" }
+    }
+  ],
+  "schedule": {
+    "model": "static_single_clock",
+    "transactions": [
+      {
+        "id": "linear0.tile0.step0",
+        "cycle": 0,
+        "duration": 64,
+        "op": "linear0.tile0",
+        "uses": ["mac_cluster0"],
+        "reads": ["input_vec_q", "weight_tile_q"],
+        "writes": ["output_acc_q"]
+      }
+    ]
+  }
+}
+#+end_src
+
+** What consumes mapped_design_ir
+
+Nothing in the current open-source FPGA stack consumes `mapped_design_ir`
+directly. The next tool should be an LLM2FPGA generator.
+
+The generator consumes:
+
+#+begin_src text
+mapped_design_ir.v0.json
+#+end_src
+
+and emits:
+
+#+begin_src text
+build/<design>/
+  sources.f
+  rtl/*.sv
+  constraints/generated.xdc
+  nextpnr/pre_pack.py       optional
+  nextpnr/pre_place.py      optional
+  nextpnr/pre_route.py      optional
+  nextpnr/post_route.py     optional
+  manifest.json
+#+end_src
+
+Then the existing stack consumes those generated artifacts:
+
+#+begin_src sh
+yosys -m "$YOSYS_SLANG_PLUGIN" -p '
+  read_slang --threads 1 --no-proc --top <top> $(cat sources.f)
+  synth_xilinx -family xc7 -top <top> -noiopad -abc9
+  write_json design.yosys.json
+'
+
+nextpnr-xilinx \
+  --chipdb "$fpgaChipdb" \
+  --xdc constraints/generated.xdc \
+  --json design.yosys.json \
+  --pre-place nextpnr/pre_place.py \
+  --freq 50 \
+  --seed 1 \
+  --write design.placed.json \
+  --fasm design.fasm
+#+end_src
+
+For the current `~/LLM2FPGA/` flow, this matches the observed boundary:
+`yosys` produces `write_json`, and `nextpnr-xilinx` consumes `--json`, `--xdc`,
+`--chipdb`, optional hook scripts, `--freq`, `--seed`, `--write`, and `--fasm`.
+
+** Open-source EDA format options
+
+*** Option A: Emit Yosys JSON directly
+
+This is technically possible but a bad v0 boundary.
+
+Yosys JSON is a synthesized netlist format. If CP emits it directly, the solver
+has to make low-level cell/net decisions early, loses a clean way to express
+model-level operations, and becomes tightly coupled to Yosys cell naming and
+mapping details.
+
+Use Yosys JSON as a verifier/generator output, not as `mapped_design_ir`.
+
+*** Option B: Emit SystemVerilog directly from CP
+
+This is also possible but makes the important architecture decision record
+implicit in generated RTL. Debugging infeasibility, comparing against hand
+baselines, and learning from failed nextpnr runs become harder.
+
+Use SystemVerilog as a generated artifact, not as the solver's primary output.
+
+*** Option C: Emit CIRCT `hw/comb/seq/sv`
+
+This is plausible after the v0 JSON stabilizes.
+
+The advantage is a typed hardware IR before Verilog emission. The risk is
+diverting back into generic lowering patterns, especially if the path drifts
+toward `handshake`. For this project, CIRCT should be a backend choice under
+`codegen.style`, not the first canonical mapped-design format.
+
+*** Option D: Emit custom MLIR dialect
+
+This is attractive long-term, especially for a first-class `fpga.fabric` or
+`llm2fpga.mapped` dialect. It is premature for v0 because neither nextpnr nor
+Yosys consume that dialect, and the schema will churn while we learn the right
+fields.
+
+Use JSON first. Promote stable pieces into MLIR later.
+
+*** Option E: JSON mapped_design_ir plus generated SV/XDC/hooks
+
+This is the right v0.
+
+It preserves CP-level decisions, stays easy to diff, fits the local Nix flow,
+and lowers into artifacts the existing stack already understands.
+
+** Physical constraints in v0
+
+`physical.constraints[]` has these categories:
+
+| `kind` | Use | Typical lowering |
+|--------+-----+------------------|
+| `pin_xdc` | Board pin package/IOSTANDARD facts. | `xdc` |
+| `clock_xdc` | `create_clock` and known clock intent. | `xdc` |
+| `region_hint` | Coarse CP placement such as clock-region preference. | `none` or future hook |
+| `packed_cell_bel_lock` | Lock a cell after nextpnr packing. | `nextpnr_pre_place` |
+| `route_hint` | Soft route/routability intent. | `none` initially |
+| `dont_touch` | Preserve important generated structure. | `sv_attribute` or Yosys script |
+
+The DDR3 work in `~/LLM2FPGA/` already found an important distinction:
+
+- source-level absolute `BEL` attributes before packing can be unsafe for some
+  IO/DDR3 primitives,
+- post-pack/pre-place `cell.setAttr("BEL", ...)` hooks are the safer place for
+  packed-cell BEL locks when needed.
+
+Therefore v0 should not casually lower every physical placement decision into
+RTL attributes. `packed_cell_bel_lock` must lower through a generated
+`nextpnr/pre_place.py` script, following the pattern of
+`scripts/task6/generate_nextpnr_pre_place_bel_locks.py` in `~/LLM2FPGA/`.
+
+** What nextpnr sees
+
+nextpnr should see:
+
+1. Yosys JSON netlist.
+2. Merged board/generated XDC.
+3. Optional Python hooks.
+4. Seed/frequency/router/placer flags.
+
+nextpnr should not see:
+
+1. PyTorch.
+2. torch-mlir.
+3. OR-Tools variables.
+4. `mapped_design_ir` directly.
+
+The feedback loop is:
+
+#+begin_src text
+mapped_design_ir
+  -> generated SV/XDC/hooks
+  -> yosys JSON
+  -> nextpnr placed JSON/FASM/log/SDF
+  -> parsed feedback
+  -> revised resource/timing/routability penalties for the next CP run
+#+end_src
+
+* Lowering path to hardware
+
+Recommended path:
+
+#+begin_src text
+mapped_design_ir
+  -> lean hardware IR
+  -> CIRCT hw / comb / seq / sv or direct SystemVerilog
+  -> yosys
+  -> nextpnr-xilinx
+#+end_src
+
+Avoid:
+
+#+begin_src text
+mapped_design_ir
+  -> generic handshake network everywhere
+#+end_src
+
+Default generated hardware style:
+
+- synchronous FSMs,
+- static counters,
+- explicit BRAM enables and addresses,
+- explicit DSP enable schedules,
+- fixed muxes,
+- deliberate pipeline cuts,
+- ready/valid only at boundaries that actually need backpressure.
+
+* CP problem statement
+
+Given:
+
+- `compute_graph`,
+- `fpga_resource_graph`,
+- objective function,
+- legal rewrite/fusion rules,
+- timing/resource margins,
+- baseline evidence from `~/LLM2FPGA/`.
+
+Find:
+
+- operation-resource bindings,
+- regional placements,
+- tensor lifetimes and buffer assignments,
+- execution order for reused resources,
+- data movement between placed resources,
+- pipeline boundaries.
+
+Subject to:
+
+- graph dependencies,
+- resource capacity,
+- tensor lifetime conflicts,
+- route-cost budgets,
+- clock/timing-risk budgets,
+- generator legality constraints.
+
+Optimize:
+
+- latency/cycles,
+- resource margin,
+- timing-risk margin,
+- routability-risk margin,
+- design simplicity where near-equal.
+
+* Monkey tasks
+
+** Monkey 1: compute graph adequacy
+
+Can `torch-mlir` expose enough structure from an LLM block for CP to reason
+about reductions, tensor lifetimes, and memory effects without collapsing into
+opaque high-level ops?
+
+** Monkey 2: resource graph adequacy
+
+Can nextpnr/chipdb/OpenXC7 facts be summarized into a coarse region graph that
+predicts enough about fit and placement pressure to be useful before PnR?
+
+** Monkey 3: mapped_design_ir adequacy
+
+Can CP emit a mapped design that is precise enough for codegen and inspection,
+but not so detailed that it reimplements nextpnr?
+
+** Monkey 4: handshake avoidance
+
+Can the generated hardware remain lean and statically scheduled while still
+being robust at true variable-latency boundaries?
+
+** Monkey 5: feedback learning
+
+Can yosys/nextpnr/HIL failures be attached back to `mapped_design_ir` as
+constraints, penalties, or revised estimates?
+
+* Relation to existing baseline
+
+This research path should learn from the hand-designed `~/LLM2FPGA/` Task 6
+baseline.
+
+Near-term use:
+
+- use Task 6 artifacts to identify discrete design decisions,
+- extract measured resource/timing/failure evidence,
+- compare any future CP mapping against hand-written MLP/output-head/rowstream
+  designs.
+
+Do not use this path to block current Task 6 progress.
+
+* Open questions
+
+- What is the minimum `compute_graph` subset needed for one TinyStories MLP
+  block?
+- Can coarse FPGA regions be extracted cleanly from nextpnr/chipdb without
+  linking against nextpnr internals?
+- Should `mapped_design_ir` be JSON first, MLIR later?
+- Which parts should eventually use CIRCT `hw/comb/seq/sv` versus direct
+  SystemVerilog templates?
+- What is the smallest example where CP produces a non-obvious mapping that a
+  hand designer would inspect seriously?

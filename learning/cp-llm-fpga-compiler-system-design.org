@@ -1,0 +1,519 @@
+# CP for LLM Inference on FPGA as a Compiler/System
+
+#+TITLE: CP for LLM Inference on FPGA as a Compiler/System
+#+DATE: 2026-06-12
+
+* Purpose
+
+This note steps back from `mapped_design_ir` and frames the project as a
+compiler and validation system.
+
+The larger goal is:
+
+#+begin_quote
+Compile a constrained, quantized PyTorch/ONNX LLM inference program into a
+board-real FPGA implementation, using CP as an architecture/search engine, while
+preserving a testable semantic connection to the original CPU model.
+#+end_quote
+
+The project therefore needs to identify:
+
+- source languages,
+- intermediate languages,
+- target languages,
+- constraint languages,
+- FPGA resource description formats,
+- transformations between those languages,
+- semantic properties,
+- golden references,
+- testing and formal-verification strategy.
+
+Related notes:
+
+- [[file:strategy-baseline-before-cp.org][Strategy: Baseline Architecture Before CP Exploration]]
+- [[file:mlir-fabric-cp-mapped-design.org][MLIR Compute Graph + FPGA Resource Graph + CP Mapped Design IR]]
+- [[file:../surveys/2a-cp-llm-fpga-state-of-art.org][State of the Art: CP for LLM Inference on FPGA]]
+
+* Compiler framing
+
+This can be treated as a compiler, but not a normal single-pass compiler.
+
+It is closer to a multi-oracle, feedback-directed compiler:
+
+#+begin_src text
+source program:
+  PyTorch / ONNX LLM inference graph
+
+source semantics:
+  CPU PyTorch execution under fixed quantization and fixed decode policy
+
+target program:
+  SystemVerilog + constraints + host interface contract
+
+target semantics:
+  FPGA cycle behavior plus host-visible outputs
+
+optimization/search oracle:
+  CP-SAT / CP / MILP / MiniZinc model
+
+physical truth oracle:
+  yosys + nextpnr-xilinx + OpenXC7 + HIL
+#+end_src
+
+It is a compiler because it transforms programs across languages while trying
+to preserve meaning. It is an architecture-search system because many target
+programs may implement the same source program.
+
+The CP solver should be understood as a *middle-end architecture oracle*, not as
+the whole compiler.
+
+* Language inventory
+
+** Source/model languages
+
+| Language/format | Role | Strength | Risk |
+|-----------------+------+----------+------|
+| PyTorch eager / `torch.nn.Module` | Human source model and CPU oracle. | Natural LLM ecosystem. | Dynamic Python behavior and implicit semantics. |
+| `torch.export` / FX graph | Captured PyTorch graph. | More compiler-friendly than eager Python. | Still PyTorch-specific. |
+| ONNX | Portable model exchange. | Broad tooling and runtime references. | May lose PyTorch-specific structure; opset churn. |
+| Safetensors / manifests | Weights and quantization payloads. | Stable data artifacts. | Not compute languages by themselves. |
+
+Policy:
+
+- Treat CPU PyTorch execution as the highest-level behavioral reference.
+- Use `torch.export`, ONNX, or torch-mlir as capture forms.
+- Do not let CP consume arbitrary Python. CP needs a finite explicit graph.
+
+** MLIR languages
+
+| Dialect/language | Role | Strength | Risk |
+|------------------+------+----------+------|
+| torch-mlir Torch dialect | PyTorch capture in MLIR. | Preserves source-level operations. | Too high-level for scheduling/resource constraints. |
+| `linalg`, `tensor`, `arith`, `scf`, `memref` | Compute/memory loop representation. | Exposes loops, reductions, shapes, memory effects. | Still not a mapping to FPGA resources. |
+| `quant` | Quantized type/scale representation. | Useful if quantization is explicit. | Quantization semantics must be nailed down. |
+| CIRCT `hw`, `comb`, `seq`, `sv` | Hardware IR and SV emission. | Good structured RTL backend. | Premature if mapping contract is unstable. |
+| CIRCT `handshake` | Elastic dataflow lowering. | Useful for variable-latency systems. | Known overhead risk for this project. |
+
+Policy:
+
+- MLIR is a strong candidate for normalized compute.
+- MLIR is not automatically the right representation for FPGA fabric.
+- Avoid `handshake` as default until evidence shows it pays for itself.
+
+** Hardware design languages
+
+| Language/format | Role | Strength | Risk |
+|-----------------+------+----------+------|
+| SystemVerilog | Main generated RTL target. | Accepted by yosys/yosys-slang in current flow. | Generator must stay within supported subset. |
+| Verilog | Safer low-level subset. | Mature open-tool support. | Less expressive for generators. |
+| RTLIL | Yosys textual netlist. | Useful for inspection and synthesis stages. | Not a human architecture contract. |
+| Yosys JSON | Synthesized netlist into nextpnr. | Actual nextpnr input. | Too low-level for CP design intent. |
+| XDC subset | Pins, clocks, constraints. | Actual constraint input to nextpnr-xilinx. | Open-flow support is not full Vivado XDC. |
+| nextpnr Python hooks | Physical implementation intervention. | Practical for pre-place BEL locks and diagnostics. | Tool-specific and phase-specific. |
+| FASM / frames / bitstream | Physical configuration output. | Good comparison/debug boundary. | Not an architecture input language. |
+
+Policy:
+
+- The target backend should emit SV, XDC, and optional nextpnr hook scripts.
+- nextpnr consumes Yosys JSON, not a high-level mapping IR.
+- FASM is a verification/debug product, not a solver output.
+
+** FPGA resource description formats
+
+There is no single clean "Verilog model of the FPGA fabric" to compile against.
+The fabric is better seen as a device database and routing/resource graph.
+
+| Source | Role | Strength | Risk |
+|--------+------+----------+------|
+| nextpnr-xilinx chipdb | Device resources understood by nextpnr. | Closest open PnR representation. | Binary/internal-ish; extraction may require scripts/APIs. |
+| OpenXC7 / Project X-Ray DB | Tiles, sites, wires, bitstream features. | Fabric facts and bitstream relation. | Low-level and incomplete for high-level scheduling. |
+| nextpnr placed JSON | Physical implementation result. | Contains placement evidence such as `NEXTPNR_BEL`. | Output evidence, not source truth. |
+| YPCB XDC/board files | Board pins/clocks/IO facts. | Board-real constraints. | Board/system facts, not generic FPGA fabric. |
+| HIL measurements | Empirical truth. | Captures real DDR3/PCIe/clock behavior. | Expensive and noisy. |
+
+Policy:
+
+- Use these sources to build an `fpga_resource_graph`.
+- Start coarse: regions, counts, rough route costs.
+- Add BEL/site details only for subproblems that need them.
+- Do not attempt full routing-graph CP as the first model.
+
+** Constraint/search languages
+
+| Language/tool | Role | Strength | Risk |
+|---------------+------+----------+------|
+| OR-Tools CP-SAT Python | Primary practical solver API. | Strong finite-domain scheduling/assignment; in nixpkgs. | Python model can become ad hoc without a declarative spec. |
+| MiniZinc | Declarative CP model language. | Clear model/data separation; multiple backends. | Less direct integration with Python/EDA feedback. |
+| MILP/ILP | Linearized optimization alternative. | Good for resource/throughput objectives. | Awkward for complex discrete scheduling. |
+| SAT/SMT | Feasibility/equivalence/exact subproblems. | Strong for bounded proof and legality. | Too low-level for broad architecture search. |
+| SVA/PSL | Hardware properties. | Useful for RTL invariants. | Does not prove PyTorch equivalence by itself. |
+
+Policy:
+
+- Use OR-Tools for the first executable CP model.
+- Consider MiniZinc as a readable specification format for small models.
+- Use SAT/SMT/formal verification for bounded local properties, not full LLM
+  equivalence.
+
+* Transformation graph
+
+The system should be described as explicit transformations:
+
+#+begin_src text
+T0: PyTorch model + weights + quantization policy
+    -> captured graph
+
+T1: captured graph
+    -> normalized compute graph
+
+T2: normalized compute graph
+    -> solver problem data
+
+T3: FPGA/board/tool evidence
+    -> resource graph + cost model
+
+T4: solver model + problem data + resource graph
+    -> mapping candidate
+
+T5: mapping candidate
+    -> generated RTL/XDC/hooks
+
+T6: RTL/XDC/hooks
+    -> Yosys JSON
+
+T7: Yosys JSON + XDC/hooks
+    -> placed/routed nextpnr result + FASM
+
+T8: placed/routed result
+    -> bitstream + HIL run
+
+T9: simulation/HIL/logs
+    -> feedback constraints and calibration data
+#+end_src
+
+Each transformation needs an input language contract, an output language
+contract, an owner/tool, and an oracle.
+
+* Transformation table
+
+| ID | Transformation | Candidate tools | Output | Primary property |
+|----+----------------+-----------------+--------+------------------|
+| T0 | PyTorch capture | `torch.export`, ONNX export, torch-mlir importer | FX/ONNX/Torch MLIR | Captured graph matches PyTorch on test inputs. |
+| T1 | Normalize compute | torch-mlir, MLIR passes | linalg/tensor/arith/scf-ish graph | Equivalent under fixed quantization. |
+| T2 | Solver extraction | Python/MLIR parser, ONNX parser | CP data model | Complete enough for schedule/resource decisions. |
+| T3 | Resource extraction | nextpnr chipdb, OpenXC7 DB, scripts | FPGA resource graph | Conservative enough not to overpromise fit/timing. |
+| T4 | Solve mapping | OR-Tools, MiniZinc, MILP | mapping candidate | Satisfies dependencies, capacities, schedule legality. |
+| T5 | Hardware generation | direct SV generator, CIRCT `hw/seq/sv` | SV/XDC/hooks | Implements candidate exactly. |
+| T6 | Synthesis | yosys/yosys-slang | Yosys JSON, stats | Parses, synthesizes, preserves RTL intent. |
+| T7 | PnR | nextpnr-xilinx/OpenXC7 | placed JSON, timing/log/FASM | Fits, routes, timing meets or fails explainably. |
+| T8 | Bitstream/HIL | fasm2frames, xc7frames2bit, board tools | board outputs | Matches reference on board-visible behavior. |
+| T9 | Feedback | log parsers, measurement scripts | calibrated costs/no-goods | Improves future solver predictions. |
+
+* Semantic properties
+
+** Functional equivalence
+
+Minimum property:
+
+#+begin_quote
+For a fixed model, fixed weights, fixed quantization policy, fixed prompt/input,
+and fixed decode rule, the FPGA-visible output must match the CPU reference
+within the declared tolerance or exact integer contract.
+#+end_quote
+
+For quantized integer inference, the desired property is stronger:
+
+#+begin_quote
+The hardware result is bit-exact to the quantized CPU reference.
+#+end_quote
+
+If approximate arithmetic is allowed, the property must be explicit:
+
+- per-op error tolerance,
+- per-layer tolerance,
+- final logits/top-k tolerance,
+- final token equality,
+- or distribution-level acceptance for approximate variants.
+
+Do not mix these casually. A token-exact goal and an approximate-logit goal are
+different compiler contracts.
+
+** Schedule legality
+
+For the mapping candidate:
+
+- every op starts after dependencies are available,
+- every memory read sees the intended write,
+- no resource is double-booked,
+- buffer lifetimes do not conflict,
+- clock-domain crossings are explicit,
+- variable-latency boundaries have handshakes or bounded wait logic.
+
+** Resource legality
+
+The CP resource model must be conservative:
+
+- predicted DSP/BRAM/LUT/FF use must not exceed selected budgets,
+- placement hints must not require impossible site/BEL combinations,
+- IO/clock/board constraints must be hard facts,
+- DDR3/PCIe fixed blocks must be represented as external contracts until they
+  are modelled.
+
+** Physical validity
+
+The open-source EDA stack is the physical reference:
+
+- yosys must parse/synthesize the generated RTL,
+- nextpnr must pack/place/route or produce useful failures,
+- timing must meet the declared target or be marked failing,
+- generated FASM/bitstream must be accepted by the downstream bitstream flow.
+
+** Reproducibility
+
+Every candidate should record:
+
+- source model hash,
+- weight hash,
+- quantization policy,
+- solver version,
+- random seed,
+- toolchain versions,
+- chipdb/database identity,
+- nextpnr seed,
+- board/HIL run metadata if used.
+
+* Golden references
+
+Gold references should exist at several layers, not just one.
+
+| Layer | Gold/reference | What it checks |
+|-------+----------------+----------------|
+| PyTorch eager | CPU model execution | Original behavior. |
+| Quantized Python | Integer/reference quantized kernels | Bit-exact arithmetic contract. |
+| ONNX Runtime | Optional model exchange reference | Export/capture sanity. |
+| torch-mlir / MLIR tests | Normalization sanity | Graph lowering did not change behavior. |
+| Existing `~/LLM2FPGA` kernels | Hand baseline | Resource/timing/correctness baseline to beat. |
+| Verilator simulation | Generated RTL behavior | RTL implements the candidate. |
+| Yosys stats | Synthesis truth | Resource estimates vs actual mapped netlist. |
+| nextpnr placed JSON/log/SDF/FASM | Physical truth | Fit, placement, route, timing, physical deltas. |
+| HIL board runs | Board truth | PCIe/DDR3/JTAG/clock/real-bitstream behavior. |
+
+The discipline:
+
+#+begin_quote
+No single layer is enough. PyTorch proves the math target; Verilator proves RTL
+behavior; yosys/nextpnr prove open-flow implementability; HIL proves board
+reality.
+#+end_quote
+
+* Testing strategy
+
+** Example-based tests
+
+Use small fixed models and inputs:
+
+- tiny linear layer,
+- small MLP block,
+- one attention projection,
+- one TinyStories block,
+- top-k/output-head slice.
+
+These tests are easy to debug and should become regression fixtures.
+
+** Differential testing
+
+Compare:
+
+- PyTorch eager vs quantized Python,
+- quantized Python vs generated RTL simulation,
+- RTL simulation vs board/HIL,
+- CP candidate A vs hand baseline on same input,
+- nextpnr seed A vs seed B for physical sensitivity.
+
+** Property-based testing
+
+Generate many small legal cases:
+
+- matrix dimensions,
+- tile sizes,
+- lane counts,
+- buffer depths,
+- signed/unsigned ranges,
+- saturation/rounding edge cases,
+- schedule dependency graphs.
+
+For each case, check:
+
+- Python reference equals RTL simulation,
+- solver schedule has no resource conflicts,
+- generated memory accesses are in bounds,
+- generated control eventually terminates.
+
+Useful tools:
+
+- Hypothesis for Python-level generation,
+- custom small-model generators,
+- Verilator testbenches generated from the same cases.
+
+** Metamorphic testing
+
+Metamorphic tests check relations rather than one fixed expected value.
+
+Possible relations:
+
+- splitting a Linear into two output tiles and concatenating equals unsplit
+  Linear,
+- changing tile size should not change outputs,
+- adding zero-weight rows yields zero contribution,
+- multiplying by identity-like matrices preserves selected values,
+- reordering independent tiles does not change final memory state,
+- increasing buffer depth without changing schedule semantics does not change
+  outputs,
+- changing nextpnr seed should not change simulated logical behavior.
+
+** Mutation testing
+
+Use mutations to test whether the tests actually catch bugs:
+
+- flip rounding mode,
+- off-by-one loop bound,
+- swap signed/unsigned multiply,
+- change accumulator width,
+- remove a pipeline-register enable,
+- alias two buffers that should be distinct,
+- perturb CP resource capacity,
+- drop a schedule dependency.
+
+The test suite should fail loudly for these mutations.
+
+** Formal verification
+
+Formal is useful locally:
+
+- no out-of-bounds BRAM address,
+- FSM liveness for bounded jobs,
+- valid/ready protocol correctness at dynamic boundaries,
+- equivalence of a generated small Linear RTL block to a simple reference RTL
+  block,
+- no simultaneous write conflicts,
+- stable output after done.
+
+Candidate tools:
+
+- Yosys/SymbiYosys for bounded properties,
+- SystemVerilog assertions,
+- equivalence checking for small generated variants.
+
+Formal is not the first proof of full PyTorch-to-FPGA equivalence. It is a way
+to prove local invariants and catch classes of RTL/generator bugs.
+
+* What CP should decide
+
+CP is strongest when the problem is finite, discrete, and constrained.
+
+Good decisions:
+
+- tile sizes,
+- lane counts,
+- which ops share compute instances,
+- operation order,
+- buffer assignment,
+- buffer depth,
+- static memory schedule,
+- BRAM vs register-file placement,
+- coarse physical region,
+- prefetch distance,
+- pipeline cut placement,
+- whether to split/fuse selected known ops,
+- no-good avoidance from previous failed builds.
+
+Bad first decisions:
+
+- arbitrary PyTorch graph semantics,
+- full exact FPGA routing,
+- detailed PIP selection,
+- full replacement for yosys mapping,
+- full replacement for nextpnr placement,
+- unconstrained invention of arbitrary RTL structures with no generator
+  contract.
+
+The surprising architecture should come from unexpected legal combinations of
+finite choices, not from asking CP to invent untyped hardware syntax.
+
+* What must be specified before solving
+
+Even in a moonshot version, the solver needs fixed semantics.
+
+Required before CP:
+
+- model graph,
+- tensor shapes,
+- quantization semantics,
+- allowed arithmetic approximations,
+- target board and fixed interfaces,
+- clock/reset assumptions,
+- legal primitive/generator vocabulary,
+- memory model,
+- resource model,
+- objective function,
+- correctness oracle.
+
+If any of these are implicit, the solver may optimize the wrong problem.
+
+* Role of mapped_design_ir
+
+With this compiler framing, `mapped_design_ir` is only one candidate middle-end
+language:
+
+#+begin_src text
+normalized compute graph
+  + resource graph
+  + CP model
+  -> mapped_design_ir
+  -> SV/XDC/hooks
+#+end_src
+
+It is not the whole system. It is the audit trail for the solver's answer.
+
+Before finalizing `mapped_design_ir`, the project should specify:
+
+- source language subset,
+- target language subset,
+- resource graph abstraction,
+- solver variable vocabulary,
+- equivalence properties,
+- reference tests.
+
+The current v0 JSON schema is therefore provisional. It is useful as a strawman
+for the CP-to-codegen boundary, but it should be judged against this broader
+language/semantics/testing design.
+
+* Initial ladder
+
+Do not start with a full LLM.
+
+1. Define one quantized Linear source subset.
+2. Define its CPU integer reference.
+3. Define a tiny compute graph representation.
+4. Define a tiny resource graph: lanes, BRAMs, cycles, coarse region.
+5. Use OR-Tools to schedule/bind the Linear.
+6. Generate SV for that candidate.
+7. Simulate against the integer reference.
+8. Synthesize and PnR through yosys/nextpnr.
+9. Feed actual resource/timing results back into the CP cost model.
+10. Expand to MLP block only after the loop works.
+
+This ladder keeps the moonshot honest: every step is a compiler transformation
+with an oracle, not just an optimization script.
+
+* Open questions
+
+- Should the primary captured source be torch-mlir or ONNX for the first
+  compiler loop?
+- What is the minimal source subset: Linear only, or Linear plus requantization?
+- Should MiniZinc be used as a readable model specification even if OR-Tools is
+  the executable implementation?
+- What is the smallest formal proof worth writing?
+- Which `~/LLM2FPGA` hand-designed kernel should become the first differential
+  reference?
+- What is the first metamorphic test that would have caught a real Task 6 bug?

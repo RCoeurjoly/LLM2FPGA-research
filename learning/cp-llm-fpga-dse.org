@@ -181,6 +181,7 @@ Step 1 (lowest risk): one operator family
 - Variables: w_bits, a_bits, tile_k, lanes, acc_bits, pipelining, memory placement
 - Constraints from estimated resources + DDR and BRAM
 - Objective: cycles_per_token on decode-oriented micro-benchmark
+- Detailed M0 plan: [[file:m0-cp-inverse-linear-plan.org][m0-cp-inverse-linear-plan.org]]
 
 Step 2:
 - Add MLP/FFN block

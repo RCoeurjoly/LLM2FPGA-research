@@ -107,6 +107,28 @@ The first two items were executed against the protocol from [[file:../learning/c
 | 46 | ASP/SAT-Based Symbolic Synthesis / SkyEgg family (2021+) | ASP | SAT/SMT refinement | Symbolic co-synthesis loop with iterative objective updates |
 | 47 | MATCHA-style CP-SAT DNN Deployment Mapping (2025-26) | CP-SAT | LP/heuristic dispatch | Deployment-time partitioning and quantization/mapping decisions |
 
+* CP/LLM/FPGA State-of-Art Overlay
+
+This overlay supports [[file:2a-cp-llm-fpga-state-of-art.org][2a-cp-llm-fpga-state-of-art.org]]. It is intentionally
+coarser than the main registry and tracks where each paper informs the
+OR-Tools/YPCB moonshot.
+
+| ID | Solver family | Stack layer | FPGA relevance | LLM relevance | YPCB relevance | Monkey signal |
+|----+---------------+-------------+----------------+---------------+----------------+---------------|
+| 19 | heuristic/profiling | memory/runtime partition | partial | direct | medium-low | memory pipeline / transfer overlap |
+| 20 | LLM-guided DSE | DSE orchestration | partial | indirect | low | feedback-loop shape |
+| 21 | none/custom datapath | compute primitive | direct | operator-level | medium | low-bit MAC primitive |
+| 28 | LLM-guided DSE | accelerator generation | partial | indirect | low | autonomous loop ambition |
+| 29 | heuristic/HLS optimization | DSE / HLS | partial | non-LLM | low | optimization loop baseline |
+| 38 | CP | HLS scheduling/binding | analogy-direct | non-ML | medium | resource assignment formulation |
+| 39 | CP | HLS scheduling/binding | analogy-direct | non-ML | medium | conditional scheduling/binding |
+| 40 | CP | communication scheduling | analogy-direct | non-ML | high | memory/communication event scheduling |
+| 41 | CP/MiniZinc | embedded scheduling/mapping | analogy-direct | non-ML | medium | CP boundary conditions |
+| 43 | SAT | detailed routing | physical-design subproblem | non-ML | low | why full PnR is risky |
+| 44 | CP | module placement | physical-design subproblem | non-ML | low | coarse placement constraints |
+| 45 | SAT/SMT | placement/legalization | physical-design subproblem | non-ML | low-medium | exact placement limits |
+| 47 | CP-SAT | DNN deployment mapping | partial | non-LLM DNN | medium | CP-SAT mapping/partitioning analogy |
+
 * Working notes
 - Reproducibility-field vocabulary:
   - `Code availability`: `repo`, `artifact_only`, `private`, `promised`, `withdrawn`, `none`

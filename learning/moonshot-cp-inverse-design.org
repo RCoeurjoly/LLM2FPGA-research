@@ -1,0 +1,405 @@
+# Moonshot: Constraint/Inversion-Driven LLM Inference on FPGA
+
+#+TITLE: Moonshot Hypothesis: Constraint Programming and Inverse Design for LLM Inference on FPGA
+#+DATE: 2026-06-11
+
+* One-line thesis
+
+Current sequencing note:
+
+- [[file:strategy-baseline-before-cp.org][Finish the baseline architecture before CP exploration]]
+- The active `~/LLM2FPGA/` Task 6 TinyStories/YPCB path remains the primary
+  implementation track. CP/OR-Tools work should re-enter after that path
+  exposes measured bottlenecks and a baseline to beat.
+
+Use constraint programming plus inverse-design feedback to turn FPGA LLM
+accelerator creation from hand-authored architecture search into a measured
+closed-loop design system:
+
+#+begin_quote
+Given a target model behavior, board envelope, and latency budget, automatically
+derive implementable quantization, tiling, scheduling, memory placement, and
+kernel-structure choices that pass correctness, timing, and throughput gates.
+#+end_quote
+
+This is deliberately stronger than ordinary DSE. The core claim is not just
+"search the parameter space faster"; it is that the design flow can work
+backwards from user-visible inference objectives and board facts to discover
+non-obvious accelerator structures.
+
+* Moonshot blueprint
+
+** Huge problem
+
+LLM inference on FPGAs is bottlenecked less by any single kernel than by the
+manual co-design burden across model semantics, quantization, memory hierarchy,
+kernel structure, scheduling, toolchain limits, timing closure, and board I/O.
+
+The practical pain:
+
+- each paper or prototype tends to be a bespoke stack,
+- reported wins often depend on proprietary tools or board-specific assumptions,
+- moving from one model/board/precision point to another requires large manual
+  redesign,
+- failed builds produce little reusable knowledge,
+- open-source FPGA flows still lack a high-level design loop for LLM inference.
+
+The 10X target is:
+
+- not 10% faster tokens/s,
+- but 10X fewer human design iterations needed to find a board-realizable
+  accelerator point for a fixed small LLM workload.
+
+** Radical solution
+
+Treat accelerator construction as an inverse-design problem:
+
+1. Start from target behavior and constraints:
+   - model graph,
+   - token-level correctness tolerance,
+   - latency/throughput objective,
+   - board resource/memory/timing envelope.
+2. Use CP-SAT/MiniZinc-style constraints to generate feasible design candidates.
+3. Compile and measure selected candidates using the real open-source hardware
+   flow.
+4. Convert failures into learned constraints, nogoods, priors, and local design
+   moves.
+5. Iterate until the system can propose designs that are likely to compile,
+   pass timing, and preserve model behavior.
+
+** Breakthrough lever
+
+The breakthrough lever is a measured constraint-learning loop:
+
+- CP encodes hard functional/resource/scheduling constraints.
+- Inverse design uses objective pressure from required behavior and board
+  measurements to propose structures.
+- Yosys/nextpnr/HIL provide truth.
+- Failed truth runs become constraints rather than discarded logs.
+
+The important inversion is:
+
+#+begin_quote
+Do not ask "how fast is this hand-designed kernel?"
+Ask "what kernel, precision, schedule, and memory layout must exist for this
+board to satisfy the model-level objective?"
+#+end_quote
+
+* Axioms
+
+These are working beliefs, not established facts.
+
+1. FPGA LLM inference is currently more design-labor limited than fabric-limited
+   for small-model, open-toolchain targets.
+2. The most valuable design knowledge is near the feasibility boundary: timing
+   failures, memory stalls, and correctness drift.
+3. Many useful accelerator structures can be represented as finite choices over
+   precision, tiling, fusion, buffering, routing, and schedule templates before
+   physical P&R.
+4. Whole-chip placement/routing is the wrong initial target for CP, but
+   floorplan hints, memory locality, and schedule/resource coupling are plausible
+   CP targets.
+5. A small, measured, reproducible closed loop can outperform larger
+   paper-inspired architecture copying.
+
+* Assumptions to break
+
+| Accepted assumption | Flip |
+|---------------------+------|
+| Human designers choose the accelerator architecture first. | Desired inference behavior and board facts choose the architecture. |
+| Failed FPGA builds are dead ends. | Failed builds are training data for constraints. |
+| DSE explores knobs on a fixed architecture. | DSE can alter kernel structure, memory placement, precision, and schedule jointly. |
+| Open-source flow limits make serious LLM acceleration impossible. | Open-source flow constraints are exactly the boundary the solver should learn. |
+| CP is only a pruning helper. | CP can become the design contract tying semantics, resources, timing risk, and experiments together. |
+
+* The monkey
+
+The monkey is not "build an LLM accelerator."
+
+The monkey is:
+
+#+begin_quote
+Can a constraint/inverse-design loop discover at least one non-trivial
+quantized-linear or MLP-block implementation that the hand-written baseline
+would not have chosen, and that passes correctness plus timing on the target
+board with fewer synthesis attempts than naive grid/random search?
+#+end_quote
+
+This is the risky part because it tests all hard claims at once:
+
+- CP model expressiveness,
+- estimator usefulness,
+- open-toolchain viability,
+- timing-feedback learning,
+- correctness preservation,
+- non-obvious design discovery.
+
+* First wedge
+
+Start with a decode-oriented quantized linear layer or FFN block for a tiny
+LLM/TinyStories-class model.
+
+Why this wedge:
+
+- small enough for repeated experiments,
+- central to LLM inference,
+- exposes precision, accumulator, tiling, memory, and pipeline choices,
+- has a clear PyTorch reference,
+- can be compared against grid/random/hand-picked baselines,
+- avoids the harder attention/KV-cache state space until the loop earns it.
+
+Avoid starting with:
+
+- full transformer,
+- full physical placement as CP,
+- multi-FPGA,
+- speculative decoding,
+- dynamic sparsity,
+- "general PyTorch to FPGA" promises.
+
+* Candidate experiment
+
+** Experiment M0: inverse-designed quantized Linear
+
+Detailed plan:
+- [[file:m0-cp-inverse-linear-plan.org][M0 Plan: CP/Inverse-Designed Quantized Linear]]
+
+Hypothesis:
+
+#+begin_quote
+A CP-guided inverse-design loop can find a passing quantized Linear kernel
+configuration using at least 3X fewer synthesis/P&R attempts than a naive grid,
+while matching reference output within the fixed quantization tolerance.
+#+end_quote
+
+Inputs:
+
+- fixed board profile from `learning/tooling/contracts/board_profile_example.json`,
+- one linear layer shape from a TinyStories-class model,
+- discrete choices for `w_bits`, `a_bits`, `tile_m`, `tile_n`, `tile_k`,
+  `lanes`, `acc_bits`, storage placement, and pipeline II,
+- target clock and resource envelope,
+- PyTorch golden output vectors.
+
+Baselines:
+
+- hand-picked conservative design,
+- naive grid search under simple resource filters,
+- random feasible sample under the same budget.
+
+Measurements:
+
+- candidates generated,
+- candidates synthesized,
+- route pass rate,
+- timing pass rate,
+- max absolute error or token-level proxy,
+- cycles/output token proxy,
+- wall-clock compile cost,
+- distinct learned constraints added.
+
+Pass criteria:
+
+- one candidate passes correctness and timing,
+- CP loop reaches the first passing candidate in <= 1/3 the synthesis attempts
+  of naive grid/random,
+- learned constraints improve pass rate in the next batch,
+- result is reproducible from checked-in config and board profile.
+
+Kill criteria:
+
+- no passing candidate after the fixed synthesis budget,
+- learned constraints do not improve pass rate over two batches,
+- top-ranked candidates repeatedly fail for unmodelable reasons,
+- correctness failures dominate despite conservative arithmetic constraints.
+
+** Experiment M1: inverse-designed FFN block
+
+Only run after M0 passes.
+
+Add:
+
+- two linear projections,
+- activation approximation choice,
+- intermediate buffer placement,
+- fusion vs split scheduling,
+- inter-kernel stream width.
+
+The goal is to test whether the loop composes across operators without turning
+into manual architecture work.
+
+* Inverse-design representation
+
+The system should expose three layers of variables:
+
+** Semantic variables
+
+- model scope: linear, FFN, attention projection,
+- quantization policy,
+- reference tolerance,
+- supported approximation family,
+- prefill/decode mode.
+
+** Architecture variables
+
+- tile shapes,
+- lane count,
+- DSP vs LUT multiplication,
+- accumulator width,
+- stream width,
+- fusion/split choice,
+- buffer placement,
+- memory layout.
+
+** Physical-risk variables
+
+- estimated critical path class,
+- BRAM/DSP region pressure,
+- memory-interface pressure,
+- floorplan region tag,
+- seed retry budget,
+- timing slack margin.
+
+The inverse-design move is to constrain these variables from the desired output
+behavior and measured board facts, not merely enumerate them from a static
+architecture template.
+
+* Premortem
+
+Assume this failed after six weeks. Likely causes:
+
+- The CP model was too shallow and only reproduced obvious grid-search filters.
+- Estimators ranked candidates poorly, causing the loop to waste builds.
+- Timing failures were dominated by backend noise not captured by candidate
+  variables.
+- Correctness drift from quantization/saturation overwhelmed performance gains.
+- The open-source build path could not support the required RTL features.
+- The project expanded to attention, KV-cache, and full-model claims before
+  proving the linear/FFN monkey.
+- Experiment records were not strict enough to convert failures into reusable
+  constraints.
+
+Countermeasures:
+
+- force comparison against grid/random baselines,
+- track pass-rate improvement, not just best-case performance,
+- keep all claims at operator/block level until measured,
+- require every failed build to emit one structured failure reason,
+- add only one new design axis after a passing gate.
+
+* Red-team objections
+
+1. CP is not powerful enough for FPGA timing.
+
+   Likely true for full timing closure. The intended target is not exact timing;
+   it is feasibility shaping, candidate pruning, and reduced-state physical-risk
+   modeling.
+
+2. This is just AutoDSE with extra terminology.
+
+   It becomes meaningfully different only if the loop learns constraints from
+   measured failures and can alter architecture structure, not just tune knobs.
+
+3. Small-model results will not scale.
+
+   Correct. The first success metric is reduced human design iteration on a
+   fixed small workload. Scaling is a later hypothesis.
+
+4. The solver may only rediscover conservative hand designs.
+
+   That is a legitimate failure mode. Require a novelty check against
+   hand-picked and grid baselines.
+
+5. FPGA compilation latency will make iteration too slow.
+
+   The mitigation is representative-core testing, candidate batching, surrogate
+   ranking, and strict synthesis budgets.
+
+* Six-week moonshot plan
+
+** Week 1: problem contract
+
+- Freeze one model/layer shape.
+- Freeze one board profile.
+- Define golden vectors and tolerance.
+- Define grid/random/hand baselines.
+- Implement or stub the candidate schema end to end.
+
+** Week 2: CP model M0
+
+- Encode Linear constraints.
+- Generate top-K candidate configs.
+- Emit reproducible candidate records.
+- Run estimator-only ranking.
+
+** Week 3: truth loop
+
+- Run synthesis/P&R/HIL or the closest available truth path.
+- Classify failures.
+- Store structured experiment records.
+
+** Week 4: learned constraints
+
+- Add nogoods and conservative margins from failures.
+- Re-run candidate generation.
+- Measure pass-rate improvement.
+
+** Week 5: baseline comparison
+
+- Run matched grid/random budget.
+- Compare first-pass candidate, best candidate, and compile attempts.
+- Decide whether M0 passes.
+
+** Week 6: compose or kill
+
+- If M0 passes: start FFN M1.
+- If M0 fails: write failure evidence and narrow the claim to estimator/CP-only
+  pruning or abandon the moonshot path.
+
+* Decision gates
+
+| Gate | Question | Pass signal | Kill signal |
+|------+----------+-------------+-------------|
+| G0 | Is the target problem specific? | One fixed board, model scope, metric, and baseline. | "General LLM on FPGA" remains the claim. |
+| G1 | Can CP produce valid candidates? | >100 schema-valid candidates with no unsupported knobs. | Candidate space mostly invalid or manually patched. |
+| G2 | Does truth feedback work? | Failures become structured constraints. | Logs remain ad hoc and unlearned. |
+| G3 | Does learning help? | Pass rate or ranking improves over next batch. | Same failure modes repeat. |
+| G4 | Is there 10X-style leverage? | >=3X fewer synthesis attempts to first passing candidate. | Comparable or worse than grid/random. |
+
+* Research questions to track
+
+- What is the smallest variable set that produces non-obvious design choices?
+- Which timing failures can be predicted from high-level structural variables?
+- Does inverse-designed memory placement matter more than compute tiling?
+- Can correctness constraints be made conservative enough without killing all
+  useful low-bit candidates?
+- Which paper architectures should be treated as templates, and which as
+  baseline comparison only?
+- Does CP-SAT give enough explainability for learned constraints, or should
+  MiniZinc/Z3 be used for debugging infeasibility?
+
+* Source notes
+
+- [[file:cp-sat-moonshot-notes.org][CP-SAT / Project Bodger / Moonshot Notes]]
+
+* Claim discipline
+
+Until M0 passes, the honest claim is:
+
+#+begin_quote
+We are testing whether CP plus measured feedback can reduce synthesis attempts
+for one quantized LLM kernel on one FPGA board.
+#+end_quote
+
+After M0 passes, the claim can become:
+
+#+begin_quote
+The same loop can compose across a small FFN block.
+#+end_quote
+
+Only after repeated block-level success should the project claim:
+
+#+begin_quote
+Constraint/inverse-design can automate practical LLM accelerator construction
+for small FPGA targets.
+#+end_quote

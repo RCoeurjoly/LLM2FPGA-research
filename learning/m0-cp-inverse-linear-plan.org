@@ -1,0 +1,449 @@
+# M0 Plan: CP/Inverse-Designed Quantized Linear
+
+#+TITLE: M0 Plan: CP/Inverse-Designed Quantized Linear
+#+DATE: 2026-06-11
+
+* Purpose
+
+M0 is the first monkey test for the CP/inverse-design moonshot.
+
+The goal is to prove or kill this claim:
+
+#+begin_quote
+A CP-guided inverse-design loop can find a non-trivial quantized Linear
+candidate that passes correctness and timing on the target FPGA with fewer
+synthesis attempts than grid/random search.
+#+end_quote
+
+This is intentionally narrower than "LLM on FPGA." It is one operator family,
+one board profile, one model-derived shape, one reproducible experiment loop.
+
+* Non-goals
+
+- No full transformer.
+- No attention or KV-cache.
+- No speculative decoding.
+- No multi-FPGA.
+- No whole-chip CP placement/routing.
+- No performance claim without correctness and timing gates.
+- No hand-tuned escape hatch that is not represented as a candidate config.
+
+* Fixed experiment contract
+
+** Workload
+
+Use one decode-oriented quantized Linear layer shape from a TinyStories-class
+model or an equivalent small LLM-like fixture.
+
+Initial shape should be fixed before solver work starts:
+
+| Field | Decision |
+|-------+----------|
+| `model_id` | `tinystories-1m-m0` or equivalent fixture |
+| `operator_scope` | `linear` |
+| input batch | 1 |
+| mode | decode |
+| input feature dim | TODO |
+| output feature dim | TODO |
+| reference source | PyTorch eager or exported static graph |
+| golden vectors | fixed random seed + saved tensors |
+
+If the real TinyStories layer is not available immediately, use a synthetic
+Linear with the same dimension class. Mark it clearly as a fixture so no LLM
+performance claim leaks out of M0.
+
+** Board
+
+Use the existing board profile:
+
+- [[file:tooling/contracts/board_profile_example.json][tooling/contracts/board_profile_example.json]]
+- board id: `YPCB-00338-1P1`
+- FPGA part: `xc7k480t`
+- target clock: 100 MHz until measured data says otherwise
+
+M0 should not change board assumptions while comparing CP/grid/random.
+
+** Correctness gate
+
+For M0, correctness is layer-output correctness, not token-level model quality.
+
+Initial gate:
+
+- same input tensor and quantized weights as reference,
+- same declared quantization policy,
+- `max_abs_error <= tolerance`,
+- saturation/rounding policy recorded in the config,
+- mismatch stores the failing input, output, and reference artifact path.
+
+TODO: choose `tolerance` after the quantization fixture exists.
+
+** Timing gate
+
+Initial pass:
+
+- synth completes,
+- place/route completes if available in the local truth path,
+- timing pass at target clock, or `wns_ns >= 0` in the selected P&R report.
+
+If P&R is not available yet, M0 splits into:
+
+- M0a: solver + synthesis/resource/correctness proxy,
+- M0b: full route/timing gate.
+
+The moonshot claim only passes after M0b.
+
+* Candidate design space
+
+Keep the first candidate space small enough to inspect by hand.
+
+** Required variables
+
+| Variable | Domain | Notes |
+|----------+--------+-------|
+| `w_bits` | {2, 3, 4, 8} | start with supported quantization only |
+| `a_bits` | {4, 8, 16} | 16 may be baseline/reference |
+| `tile_m` | {1, 8, 16, 32} | decode batch likely makes M small |
+| `tile_n` | {16, 32, 64, 128} | output tile |
+| `tile_k` | {16, 32, 64, 128} | reduction tile |
+| `lanes` | {1, 2, 4, 8, 16} | parallel MAC lanes |
+| `acc_bits` | {16, 24, 32} | must satisfy arithmetic safety |
+| `pipeline_ii` | {1, 2, 4} | implementation-dependent |
+| `use_dsp_mul` | {0, 1} | must not both be false with LUT |
+| `use_lut_mul` | {0, 1} | may be required for low-bit variants |
+| `weights_in_bram` | {0, 1} | mutually exclusive with DDR placement |
+| `weights_in_ddr` | {0, 1} | use explicit bool instead of vague `ext_mem` |
+| `stream_width_bits` | {32, 64, 128, 256} | host/memory interface pressure |
+
+** Derived variables
+
+- `num_tiles_m`
+- `num_tiles_n`
+- `num_tiles_k`
+- `macs_per_cycle_est`
+- `cycles_est`
+- `dsp_est`
+- `lut_est`
+- `bram_est`
+- `ddr_bw_est`
+- `timing_risk_class`
+- `resource_headroom_class`
+
+** Hard constraints
+
+- `input_dim % tile_k = 0`
+- `output_dim % tile_n = 0`
+- `use_dsp_mul + use_lut_mul >= 1`
+- `weights_in_bram + weights_in_ddr = 1`
+- `acc_bits >= ceil_log2(tile_k) + w_bits + a_bits - 1`
+- estimated LUT/FF/DSP/BRAM usage stays below board budget with margin
+- DDR bandwidth estimate stays below measured board bandwidth with margin
+- selected quantization and implementation combination is supported by the
+  codegen/testbench path
+
+** First objective
+
+Use lexicographic ranking:
+
+1. feasible under hard constraints,
+2. minimize estimated cycles per output,
+3. minimize timing risk class,
+4. maximize resource headroom,
+5. minimize compile-risk class.
+
+Avoid weighted sums until there is measured data to calibrate the weights.
+
+* Baselines
+
+M0 is not meaningful without matched baselines.
+
+** B0: hand-picked conservative
+
+One manually selected candidate:
+
+- moderate tile size,
+- DSP multiply enabled,
+- conservative accumulator width,
+- simple memory placement,
+- `pipeline_ii = 2` or most reliable local default.
+
+Purpose: verifies the truth path and sets a practical human baseline.
+
+** B1: naive grid
+
+Enumerate the same domains, apply only simple hard filters:
+
+- divisibility,
+- resource estimate,
+- mutually exclusive memory placement,
+- supported implementation combinations.
+
+Rank by estimated cycles only.
+
+** B2: random feasible
+
+Sample uniformly from candidates that pass the same hard filters as B1.
+
+Use fixed random seeds and the same synthesis-attempt budget as CP.
+
+* Success metric
+
+Primary M0 success:
+
+#+begin_quote
+CP reaches the first candidate that passes correctness and timing in <= 1/3 the
+synthesis attempts required by the better of naive grid or random feasible
+search under the same candidate domains and truth path.
+#+end_quote
+
+Secondary success:
+
+- CP top-K pass rate improves after learned constraints are added.
+- CP best passing candidate is not identical to the hand-picked conservative
+  baseline.
+- The passing config and experiment record validate against the existing JSON
+  schemas.
+- Re-running the same solver seed reproduces the top-K candidate list.
+
+* Attempt budget
+
+Initial budget:
+
+| Lane | Candidate generation | Truth attempts |
+|------+----------------------+----------------|
+| hand baseline | 1 | 1-3 seeds |
+| CP batch 0 | top 20 | up to 20 |
+| grid baseline | top 20 | up to 20 |
+| random baseline | 20 fixed-seed samples | up to 20 |
+| CP batch 1 learned | top 20 | up to 20 |
+
+Stop early if a lane finds a correctness+timing pass, but record the attempt
+number and candidate order.
+
+* Artifact contract
+
+M0 should reuse the existing schemas before adding new ones.
+
+** Candidate config
+
+Use:
+
+- [[file:tooling/contracts/config_run.schema.json][tooling/contracts/config_run.schema.json]]
+- [[file:tooling/contracts/config_run_example.json][tooling/contracts/config_run_example.json]]
+
+Required M0 additions inside `params`:
+
+- `input_dim`
+- `output_dim`
+- `rounding_mode`
+- `saturation_mode`
+- `weights_in_ddr`
+- `stream_width_bits`
+- `candidate_source`: one of `cp`, `grid`, `random`, `hand`
+- `candidate_rank`
+
+** Experiment record
+
+Use:
+
+- [[file:tooling/contracts/experiment_record.schema.json][tooling/contracts/experiment_record.schema.json]]
+- [[file:tooling/contracts/experiment_record.example.json][tooling/contracts/experiment_record.example.json]]
+
+For M0:
+
+- `phase = A_linear_kernel` for candidate generation and synthesis truth,
+- `phase = D_hil_closed_loop` only when hardware/correctness feedback is in
+  the loop,
+- `status` must distinguish `build_fail`, `timing_fail`, `mismatch`, and
+  `pass`.
+
+** Report
+
+Produce one report:
+
+- `learning/m0-candidate-report.org`
+
+Minimum report tables:
+
+- top-K CP candidates,
+- first-pass attempt comparison across CP/grid/random/hand,
+- failure-mode counts,
+- learned constraints added,
+- final pass/kill decision.
+
+* Failure taxonomy
+
+Use these failure labels consistently:
+
+| Label | Meaning |
+|-------+---------|
+| `schema_invalid` | candidate cannot validate or cannot be represented |
+| `unsupported_combo` | selected knobs have no implementation/testbench path |
+| `resource_overflow` | estimates passed but synthesis resource use exceeds budget |
+| `build_fail` | synthesis or generated RTL fails structurally |
+| `route_fail` | P&R cannot complete |
+| `timing_fail` | P&R completes but misses target clock |
+| `correctness_mismatch` | output differs beyond tolerance |
+| `perf_miss` | passes correctness/timing but loses to baseline objective |
+| `inconclusive` | environment/tool failure prevents interpretation |
+
+* Learned constraints
+
+Do not add learned constraints casually. Every learned rule needs:
+
+- source experiment ids,
+- observed failure mode,
+- proposed clause or margin update,
+- expected effect,
+- rollback path if overfitted.
+
+Initial learned-constraint forms:
+
+- nogood: exact bad tuple or small pattern,
+- margin update: raise resource/timing/bandwidth safety factor,
+- domain removal: disable unsupported implementation combination,
+- ranking penalty: demote high-risk region without making it impossible.
+
+Examples:
+
+#+begin_src text
+if tile_k >= 128 and lanes >= 16 and pipeline_ii == 1:
+  require timing_risk_class >= high
+
+if use_lut_mul == 1 and w_bits >= 8:
+  add ranking penalty or disallow until LUT model is calibrated
+
+if weights_in_ddr == 1:
+  require ddr_bw_est <= 0.70 * ddr_bw_measured
+#+end_src
+
+* Work breakdown
+
+** M0.0 Freeze contract
+
+Outputs:
+
+- chosen layer shape,
+- chosen tolerance,
+- fixed board profile,
+- chosen target clock,
+- candidate domains,
+- baseline budgets.
+
+Exit:
+
+- no solver or implementation work starts until these are written down.
+
+** M0.1 Candidate generator
+
+Outputs:
+
+- CP candidate list,
+- grid candidate list,
+- random feasible list,
+- hand candidate config,
+- all configs validate against schema.
+
+Exit:
+
+- same seed produces same CP top-K and random sample.
+
+** M0.2 Estimator
+
+Outputs:
+
+- cycles estimate,
+- resource estimate,
+- bandwidth estimate,
+- timing-risk class,
+- sorted report.
+
+Exit:
+
+- estimates are mechanically derived from config + board profile.
+
+** M0.3 Truth harness
+
+Outputs:
+
+- build invocation contract,
+- generated RTL/kernel artifact path,
+- synth/P&R log paths,
+- correctness test invocation,
+- experiment record.
+
+Exit:
+
+- hand baseline produces a meaningful pass/fail record.
+
+** M0.4 Baseline comparison
+
+Outputs:
+
+- CP/grid/random attempt order,
+- first-pass attempt number per lane,
+- failure taxonomy table.
+
+Exit:
+
+- the primary success metric can be evaluated.
+
+** M0.5 Learned-constraint loop
+
+Outputs:
+
+- learned constraints from failed batch,
+- CP batch 1,
+- pass-rate/ranking comparison to CP batch 0.
+
+Exit:
+
+- decide pass, narrow, or kill.
+
+* Pass / narrow / kill decision
+
+** Pass
+
+M0 passes if:
+
+- at least one CP candidate passes correctness and timing,
+- CP reaches first pass in <= 1/3 attempts of grid/random,
+- result is not just the hand baseline,
+- learned constraints improve CP batch quality or provide a clear useful
+  boundary,
+- artifacts are reproducible from checked-in configs.
+
+** Narrow
+
+M0 narrows if:
+
+- CP improves candidate validity or synthesis success but cannot yet pass full
+  timing,
+- P&R/HIL is the only blocked layer,
+- evidence suggests M0a is useful but M0b needs tooling work.
+
+Narrowed claim:
+
+#+begin_quote
+CP is useful for candidate pruning and resource-feasible quantized Linear
+generation, but the timing/correctness closed loop is not proven yet.
+#+end_quote
+
+** Kill
+
+M0 kills the moonshot path if:
+
+- CP performs no better than grid/random under matched budgets,
+- learned constraints do not improve the second batch,
+- failures are dominated by unmodelable backend noise,
+- correctness mismatches dominate and cannot be fixed by conservative arithmetic
+  constraints,
+- the implementation path requires manual per-candidate intervention.
+
+* Immediate next decisions
+
+1. Choose the exact Linear shape.
+2. Choose whether M0 starts with real TinyStories weights or a synthetic fixture.
+3. Choose the initial quantization policy and tolerance.
+4. Choose the first truth path: synthesis-only, route/timing, or HIL-capable.
+5. Decide where generated configs/reports will live.
+

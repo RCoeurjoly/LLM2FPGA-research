@@ -1,0 +1,122 @@
+# Strategy: Baseline Architecture Before CP
+
+#+TITLE: Strategy: Finish Baseline Architecture Before CP Exploration
+#+DATE: 2026-06-11
+
+* Decision
+
+Finish the current `~/LLM2FPGA/` plan first, using the custom ad hoc /
+traditional architecture path as the primary execution track. Treat
+constraint-programming work as a later research and modelling track that learns
+from the baseline, rather than as the next implementation dependency.
+
+This changes the near-term policy:
+
+- do not divert Task 6 implementation into OR-Tools yet,
+- do not try to make CP solve the architecture before the traditional
+  TinyStories/YPCB path is measured,
+- use the current architecture to expose the real memory, PCIe, timing,
+  correctness, and resource bottlenecks,
+- then progressively model selected bottlenecks with OR-Tools or related
+  solvers if the evidence says they are solver-shaped.
+
+* Current baseline track
+
+The active implementation track lives in `~/LLM2FPGA/`, especially:
+
+- `docs/task6-current-plan.md`
+- `AUTONIGHT_STATUS.md`
+- Task 6 TinyStories/YPCB artifacts and simulations
+
+The baseline direction is:
+
+1. preserve the existing M0 host-assisted DDR3 rowstream top1 evidence,
+2. move transformer math onto the board through M1/M2/M3,
+3. keep PCIe as control/setup/result transport rather than per-token hidden
+   state transport,
+4. use DDR3 for model/output-head movement,
+5. finish TinyStories-1M token-exact greedy inference evidence if feasible.
+
+This path is the source of truth for board reality.
+
+* Why CP waits
+
+The CP moonshot currently has too many degrees of freedom:
+
+- model import,
+- quantization,
+- tiling,
+- DDR3 traffic,
+- PCIe orchestration,
+- RTL template generation,
+- yosys/nextpnr feedback,
+- board/HIL evidence.
+
+Trying to solve all of those before finishing the baseline risks turning CP into
+a pedestal. The baseline architecture gives CP something concrete to model:
+
+- measured DDR3 bandwidth and burst behavior,
+- actual BRAM/DSP/LUT pressure,
+- failure modes from yosys/nextpnr,
+- latency and correctness bottlenecks,
+- known host/board responsibility boundaries,
+- a hand-designed architecture to beat.
+
+* CP re-entry criteria
+
+Revisit OR-Tools after at least one of these is true:
+
+1. A Task 6 stage reaches a stable board or simulation gate and exposes a clear
+   scheduling/design bottleneck.
+2. DDR3 rowstream or buffering choices become the dominant manual design
+   burden.
+3. Several candidate hand designs differ mainly by discrete choices:
+   tile size, lanes, buffer depth, stream width, quantization, or memory
+   placement.
+4. yosys/nextpnr failures cluster by recognizable design parameters.
+5. The current architecture has a measurable baseline that CP can compare
+   against.
+
+Until then, CP work should remain survey/modelling notes only.
+
+Related design note:
+
+- [[file:mlir-fabric-cp-mapped-design.org][MLIR Compute Graph + FPGA Resource Graph + CP Mapped Design IR]]
+
+* Progressive modelling ladder
+
+When CP re-enters, model parts of the existing system in this order:
+
+1. DDR3 rowstream scheduling:
+   - model bytes per row/tile, burst class, buffer depth, compute overlap, and
+     bandwidth margin.
+2. Output-head / GEMV tiling:
+   - model lanes, accumulator width, tile size, row chunking, and BRAM/DDR
+     placement.
+3. MLP/residual block choices:
+   - model intermediate buffer placement, fusion/split schedule, and fixed-point
+     format choices.
+4. Full-block scheduling:
+   - model the hand-authored block sequence and find bottlenecks.
+5. PyTorch/ONNX graph-level mapping:
+   - only after the solver has proven useful on known board-real blocks.
+
+* Updated monkey framing
+
+Near-term monkey:
+
+#+begin_quote
+Can the current hand-designed YPCB/TinyStories architecture reach the next Task
+6 gates and produce reliable board/resource/timing evidence?
+#+end_quote
+
+Later CP monkey:
+
+#+begin_quote
+Given that baseline evidence, can OR-Tools improve or explain one painful
+discrete design choice without destabilizing the implementation path?
+#+end_quote
+
+This keeps moonshot thinking grounded: the monkey is not "build a CP platform";
+it is first to finish the board-real baseline, then test whether CP removes a
+real bottleneck.

@@ -7,6 +7,7 @@ No RTL/tool execution is required in this branch.
 - Ingested surveys:
   - [[file:surveys/1a-survey.org][deliverables/1a-survey.org]]
   - [[file:surveys/1a-openflow-kintex480t-survey.org][1a-openflow-kintex480t-survey.org]]
+  - [[file:surveys/2a-cp-llm-fpga-state-of-art.org][2a-cp-llm-fpga-state-of-art.org]]
 - Combined reference index:
   - [[file:surveys/1a-paper-registry.org][1a-paper-registry.org]]
 
@@ -15,6 +16,14 @@ No RTL/tool execution is required in this branch.
 - [[file:notes/questions.org][questions.org]]
 - [[file:learning/system-view.org][system-view.org]]
 - [[file:learning/design-space-template.org][design-space-template.org]]
+- [[file:learning/cp-llm-fpga-compiler-system-design.org][cp-llm-fpga-compiler-system-design.org]]
+- [[file:schemas/mapped_design_ir.v0.schema.json][mapped_design_ir.v0.schema.json]]
+- [[file:examples/mapped_design_ir.v0.tinystories_linear.json][mapped_design_ir.v0.tinystories_linear.json]]
+- [[file:learning/strategy-baseline-before-cp.org][strategy-baseline-before-cp.org]]
+- [[file:learning/mlir-fabric-cp-mapped-design.org][mlir-fabric-cp-mapped-design.org]]
+- [[file:learning/moonshot-cp-inverse-design.org][moonshot-cp-inverse-design.org]]
+- [[file:learning/cp-sat-moonshot-notes.org][cp-sat-moonshot-notes.org]]
+- [[file:learning/m0-cp-inverse-linear-plan.org][m0-cp-inverse-linear-plan.org]]
 - [[file:surveys/1b-keyword-expansion.org][1b-keyword-expansion.org]]
 - [[file:learning/tooling/README.org][learning/tooling/README.org]]
 - Evidence discipline and claim status are tracked in [[file:notes/questions.org][questions.org]].
